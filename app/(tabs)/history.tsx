@@ -3,24 +3,60 @@ import { useCallback, useState } from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 
 import { COLORS } from '@/constants/colors';
-import { STUDENT_ID } from '@/constants/student';
-import { getAttendanceHistory, type AttendanceRecord } from '@/lib/database';
-
+import { useAuth } from '@/lib/auth';
+import { getProfile, type Role } from '@/lib/profiles';
+import {
+  getAttendanceHistory,
+  getTeacherEventAttendance,
+  type AttendanceRecord,
+  type TeacherEventAttendance,
+} from '@/lib/attendance';
 export default function HistoryScreen() {
-  const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const { user } = useAuth();
+
+  const [role, setRole] = useState<Role | null>(null);
+  const [studentRecords, setStudentRecords] = useState<AttendanceRecord[]>([]);
+  const [teacherEvents, setTeacherEvents] = useState<TeacherEventAttendance[]>(
+    []
+  );
   const [loading, setLoading] = useState(true);
 
-  const loadHistory = useCallback(() => {
-    getAttendanceHistory(STUDENT_ID).then((rows) => {
-      setRecords(rows);
+  const load = useCallback(async () => {
+    if (!user) {
       setLoading(false);
-    });
-  }, []);
+      return;
+    }
+
+    setLoading(true);
+
+    const profile = await getProfile(user.id);
+    const currentRole = profile?.role ?? 'student';
+
+    setRole(currentRole);
+
+   if (currentRole === 'teacher') {
+  const events = await getTeacherEventAttendance(user.id);
+
+  setTeacherEvents(events);
+  setStudentRecords([]);
+} else {
+  const records = await getAttendanceHistory(user.id);
+ const formattedRecords: AttendanceRecord[] = records;
+  
+
+  setStudentRecords(formattedRecords);
+  setTeacherEvents([]);
+}
+
+setLoading(false);
+
+
+  }, [user]);
 
   useFocusEffect(
     useCallback(() => {
-      loadHistory();
-    }, [loadHistory])
+      load();
+    }, [load])
   );
 
   return (
@@ -29,26 +65,134 @@ export default function HistoryScreen() {
 
       {loading ? (
         <Text style={styles.subtitle}>Loading records...</Text>
-      ) : records.length === 0 ? (
-        <Text style={styles.subtitle}>
-          No records yet. Scan a QR code to register your attendance.
-        </Text>
+      ) : role === 'teacher' ? (
+        <TeacherHistory events={teacherEvents} />
       ) : (
-        <FlatList
-          data={records}
-          keyExtractor={(item) => String(item.id)}
-          contentContainerStyle={styles.list}
-          renderItem={({ item }) => (
-            <View style={styles.card}>
-              <Text style={styles.eventTitle}>{item.eventTitle}</Text>
-              <Text style={styles.eventMeta}>{item.eventId}</Text>
-              <Text style={styles.eventMeta}>{formatDate(item.scannedAt)}</Text>
-            </View>
-          )}
-        />
+        <StudentHistory records={studentRecords} />
       )}
     </View>
   );
+}
+
+// ===============================
+// STUDENT HISTORY
+// ===============================
+
+function StudentHistory({
+  records,
+}: {
+  records: AttendanceRecord[];
+}) {
+  if (records.length === 0) {
+    return (
+      <Text style={styles.subtitle}>
+        No records yet. Scan a QR code to register your attendance.
+      </Text>
+    );
+  }
+
+  return (
+    <FlatList
+      data={records}
+      keyExtractor={(item) => String(item.id)}
+      contentContainerStyle={styles.list}
+      renderItem={({ item }) => (
+        <View style={styles.card}>
+          <Text style={styles.eventTitle}>{item.eventTitle}</Text>
+
+          <Text style={styles.eventMeta}>{item.eventId}</Text>
+
+          <Text style={styles.eventMeta}>
+            {formatDate(item.scannedAt)}
+          </Text>
+        </View>
+      )}
+    />
+  );
+}
+
+// ===============================
+// TEACHER HISTORY
+// ===============================
+
+function TeacherHistory({
+  events,
+}: {
+  events: TeacherEventAttendance[];
+}) {
+  if (events.length === 0) {
+    return (
+      <Text style={styles.subtitle}>
+        No events yet. Create an event to start recording attendance.
+      </Text>
+    );
+  }
+
+  return (
+    <FlatList
+      data={events}
+      keyExtractor={(item) => item.eventId}
+      contentContainerStyle={styles.list}
+      renderItem={({ item }) => (
+        <View style={styles.card}>
+          <View style={styles.headerRow}>
+            <Text style={styles.eventTitle}>{item.title}</Text>
+
+            <View style={styles.countBadge}>
+              <Text style={styles.countText}>
+                {item.attendeeCount}
+              </Text>
+            </View>
+          </View>
+
+          <Text style={styles.eventMeta}>
+            Event Code: {item.eventCode}
+          </Text>
+
+          {item.startTime && (
+            <Text style={styles.eventMeta}>
+              Start: {formatDate(item.startTime)}
+            </Text>
+          )}
+
+          {item.endTime && (
+            <Text style={styles.eventMeta}>
+              End: {formatDate(item.endTime)}
+            </Text>
+          )}
+
+          <Text style={styles.attendanceTitle}>
+            Students who scanned:
+          </Text>
+
+          {item.attendees.length === 0 ? (
+            <Text style={styles.eventMeta}>
+              No students have scanned this event yet.
+            </Text>
+          ) : (
+            item.attendees.map((student) => (
+              <View
+                key={`${student.studentId}-${student.scannedAt}`}
+                style={styles.studentRow}
+              >
+                <Text style={styles.studentId}>
+                  {shortId(student.studentId)}
+                </Text>
+
+                <Text style={styles.eventMeta}>
+                  {formatDate(student.scannedAt)}
+                </Text>
+              </View>
+            ))
+          )}
+        </View>
+      )}
+    />
+  );
+}
+
+function shortId(id: string) {
+  return id ? `…${id.slice(-8)}` : 'unknown';
 }
 
 function formatDate(iso: string) {
@@ -62,12 +206,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 24,
   },
+
   title: {
     fontSize: 20,
     fontWeight: '600',
     color: COLORS.textPrimary,
     marginBottom: 16,
   },
+
   subtitle: {
     fontSize: 14,
     color: COLORS.textSecondary,
@@ -75,29 +221,80 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginTop: 32,
   },
+
   list: {
     paddingBottom: 24,
   },
+
   card: {
     backgroundColor: COLORS.card,
     borderRadius: 14,
     padding: 16,
     marginBottom: 12,
     shadowColor: COLORS.shadow,
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
   },
+
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+
   eventTitle: {
     fontSize: 16,
     fontWeight: '600',
     color: COLORS.textPrimary,
     marginBottom: 4,
+    flex: 1,
   },
+
   eventMeta: {
     fontSize: 13,
     color: COLORS.textSecondary,
     marginTop: 2,
+  },
+
+  countBadge: {
+    minWidth: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#22c55e',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+
+  countText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+
+  attendanceTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+    marginTop: 14,
+    marginBottom: 6,
+  },
+
+  studentRow: {
+    paddingVertical: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#eeeeee',
+  },
+
+  studentId: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
   },
 });

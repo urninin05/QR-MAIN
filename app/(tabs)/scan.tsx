@@ -1,33 +1,63 @@
-
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import AppButton from '@/components/AppButton';
 import { COLORS } from '@/constants/colors';
-
-import { STUDENT_ID } from '@/constants/student';
-import { registerAttendance } from '@/lib/database';
+import { useAuth } from '@/lib/auth';
+import { registerAttendance } from '@/lib/attendance';
+import { useRole } from '@/lib/useRole';
 
 export default function ScanScreen() {
+  const { user } = useAuth();
+  const { isStudent, loading: roleLoading } = useRole();
+
   const [permission, requestPermission] = useCameraPermissions();
+
   const [scanned, setScanned] = useState(false);
   const [lastData, setLastData] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
+  // Wait for role to load
+  if (roleLoading) {
+    return (
+      <View style={styles.permissionContainer}>
+        <Text style={styles.subtitle}>Loading...</Text>
+      </View>
+    );
+  }
+
+  // Only students can access QR scanning
+  if (!isStudent) {
+    return (
+      <View style={styles.permissionContainer}>
+        <Text style={styles.title}>Access Restricted</Text>
+
+        <Text style={styles.subtitle}>
+          Only students can scan attendance QR codes.
+        </Text>
+      </View>
+    );
+  }
 
   if (!permission) {
-    return <View style={styles.container} />;
+    return (
+      <View style={styles.permissionContainer}>
+        <Text style={styles.subtitle}>Loading camera...</Text>
+      </View>
+    );
   }
 
   if (!permission.granted) {
     return (
-      <View style={styles.container}>
+      <View style={styles.permissionContainer}>
         <Text style={styles.title}>Camera Permission Needed</Text>
+
         <Text style={styles.subtitle}>
           We need access to your camera to scan QR codes.
         </Text>
+
         <AppButton
           theme="primary"
           title="Grant Permission"
@@ -38,50 +68,78 @@ export default function ScanScreen() {
     );
   }
 
-  const handleBarcodeScanned = ({ data }: { data: string }) => {
-  setScanned(true);
-  setLastData(data);
-  registerAttendance(data, STUDENT_ID).then((result) => {
-    setMessage(result.message);
-    setSuccess(result.success);
-  });
-};
+  const handleBarcodeScanned = async ({
+    data,
+  }: {
+    data: string;
+  }) => {
+    setScanned(true);
+    setLastData(data);
+    setMessage('Checking QR code...');
+    setSuccess(false);
 
-const handleScanAgain = () => {
-  setScanned(false);
-  setLastData(null);
-  setMessage(null);
-};
+    try {
+      const studentId = user?.id ?? 'unknown';
+
+      const result = await registerAttendance(
+        data,
+        studentId
+      );
+
+      setMessage(result.message);
+      setSuccess(result.success);
+    } catch (error) {
+      console.error('Attendance registration error:', error);
+
+      setMessage(
+        'Something went wrong while recording attendance.'
+      );
+      setSuccess(false);
+    }
+  };
+
+  const handleScanAgain = () => {
+    setScanned(false);
+    setLastData(null);
+    setMessage(null);
+    setSuccess(false);
+  };
 
   return (
     <View style={styles.container}>
       <CameraView
         style={styles.camera}
         facing="back"
-        barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
-        onBarcodeScanned={scanned ? undefined : handleBarcodeScanned}
+        barcodeScannerSettings={{
+          barcodeTypes: ['qr'],
+        }}
+        onBarcodeScanned={
+          scanned ? undefined : handleBarcodeScanned
+        }
       />
 
       <View style={styles.overlay}>
         <Text style={styles.overlayText}>
-          {scanned ? 'QR Code detected!' : 'Point your camera at a QR code'}
+          {scanned
+            ? 'QR Code detected!'
+            : 'Point your camera at a QR code'}
         </Text>
 
         {scanned && message && (
-  <Text
-    style={[styles.scanResult, success ? styles.success : styles.error]}
-  >
-    {message}
-  </Text>
-)}
-
-{scanned && lastData && (
-  <Text style={styles.scanData}>{lastData}</Text>
-)}
-
+          <Text
+            style={[
+              styles.scanResult,
+              success ? styles.success : styles.error,
+            ]}
+          >
+            {message}
+          </Text>
+        )}
 
         {scanned && lastData && (
-          <Text style={styles.scanResult}>{lastData}</Text>
+          <Text style={styles.scanData}>
+            {lastData}
+          </Text>
         )}
 
         {scanned && (
@@ -89,7 +147,7 @@ const handleScanAgain = () => {
             theme="primary"
             title="Scan Again"
             icon="refresh"
-            onPress={() => setScanned(false)}
+            onPress={handleScanAgain}
           />
         )}
       </View>
@@ -101,19 +159,28 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.background,
+  },
+
+  permissionContainer: {
+    flex: 1,
+    backgroundColor: COLORS.background,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 24,
   },
+
   camera: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
+
   title: {
     fontSize: 20,
     fontWeight: '600',
     color: COLORS.textPrimary,
     marginBottom: 8,
+    textAlign: 'center',
   },
+
   subtitle: {
     fontSize: 14,
     color: COLORS.textSecondary,
@@ -121,6 +188,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: 16,
   },
+
   overlay: {
     position: 'absolute',
     left: 20,
@@ -131,6 +199,7 @@ const styles = StyleSheet.create({
     padding: 16,
     alignItems: 'center',
   },
+
   overlayText: {
     fontSize: 16,
     fontWeight: '600',
@@ -138,11 +207,26 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     textAlign: 'center',
   },
-  scanResult: { fontSize: 14, textAlign: 'center', marginBottom: 8, fontWeight: '600' },
-success:    { color: '#2E7D32' },   // green — attendance recorded
-error:      { color: '#C62828' },   // red — failed / duplicate
-scanData:   { fontSize: 12, color: COLORS.textSecondary, textAlign: 'center', marginBottom: 12 },
 
+  scanResult: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 8,
+    fontWeight: '600',
   },
-);
 
+  success: {
+    color: '#2E7D32',
+  },
+
+  error: {
+    color: '#C62828',
+  },
+
+  scanData: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+});

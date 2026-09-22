@@ -1,5 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text } from 'react-native';
 
 import { COLORS } from '@/constants/colors';
 
@@ -11,66 +11,59 @@ type Props = {
 };
 
 export default function AppButton({ title, icon, theme, onPress }: Props) {
-  if (theme === 'primary') {
-    return (
-      <View
-        style={[
-          styles.buttonOuter,
-          { borderWidth: 3, borderColor: COLORS.primary, borderRadius: 18 },
-        ]}
-      >
-        <Pressable
-          style={[styles.buttonInner, { backgroundColor: COLORS.primary }]}
-          onPress={onPress}
-        >
-          <Ionicons
-            name={icon}
-            size={22}
-            color={COLORS.textOnPrimary}
-            style={styles.icon}
-          />
-          <Text style={[styles.label, { color: COLORS.textOnPrimary }]}>
-            {title}
-          </Text>
-        </Pressable>
-      </View>
-    );
-  }
+  const isPrimary = theme === 'primary';
 
   return (
-    <View style={styles.buttonOuter}>
-      <Pressable style={styles.buttonInner} onPress={onPress}>
-        <Ionicons
-          name={icon}
-          size={22}
-          color={COLORS.textSecondary}
-          style={styles.icon}
-        />
-        <Text style={styles.label}>{title}</Text>
-      </Pressable>
-    </View>
+    <Pressable
+      style={[
+        styles.button,
+        {
+          backgroundColor: isPrimary ? COLORS.primary : COLORS.card,
+          borderColor: isPrimary ? COLORS.primary : COLORS.border,
+        },
+      ]}
+      onPress={onPress}
+    >
+      <Ionicons
+        name={icon}
+        size={22}
+        color={isPrimary ? COLORS.textOnPrimary : COLORS.textPrimary}
+        style={styles.icon}
+      />
+
+      <Text
+        style={[
+          styles.label,
+          {
+            color: isPrimary ? COLORS.textOnPrimary : COLORS.textPrimary,
+          },
+        ]}
+      >
+        {title}
+      </Text>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  buttonOuter: {
+  button: {
     width: '100%',
     marginBottom: 14,
-  },
-  buttonInner: {
-    borderRadius: 14,
-    paddingVertical: 16,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 14,
     paddingHorizontal: 20,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    backgroundColor: COLORS.card,
-    shadowColor: COLORS.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
   },
-  icon: { paddingRight: 10 },
-  label: { fontSize: 17, fontWeight: '600', color: COLORS.textPrimary },
+
+  icon: {
+    marginRight: 10,
+  },
+
+  label: {
+    fontSize: 17,
+    fontWeight: '600',
+  },
 });

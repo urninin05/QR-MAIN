@@ -1,15 +1,35 @@
 import { Tabs } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
+import { COLORS } from '@/constants/colors';
+import { useRole } from '@/lib/useRole';
+
 export default function TabLayout() {
+  const { isStudent, isTeacher, loading } = useRole();
+
+  // Wait until we know the user's role
+  if (loading) {
+    return null;
+  }
+
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: '#ffd33d',
-        headerStyle: { backgroundColor: '#25292e' },
+        tabBarActiveTintColor: COLORS.primary,
+        tabBarInactiveTintColor: COLORS.textSecondary,
+
+        headerStyle: {
+          backgroundColor: COLORS.background,
+        },
+
         headerShadowVisible: false,
-        headerTintColor: '#fff',
-        tabBarStyle: { backgroundColor: '#25292e' },
+        headerTintColor: COLORS.textPrimary,
+
+        tabBarStyle: {
+          backgroundColor: COLORS.card,
+          borderTopColor: COLORS.border,
+          borderTopWidth: 1,
+        },
       }}
     >
       <Tabs.Screen
@@ -25,10 +45,12 @@ export default function TabLayout() {
           ),
         }}
       />
+
       <Tabs.Screen
         name="scan"
         options={{
           title: 'Scan',
+          href: isStudent ? '/(tabs)/scan' : null,
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? 'qr-code' : 'qr-code-outline'}
@@ -38,6 +60,7 @@ export default function TabLayout() {
           ),
         }}
       />
+
       <Tabs.Screen
         name="history"
         options={{
@@ -51,6 +74,7 @@ export default function TabLayout() {
           ),
         }}
       />
+
       <Tabs.Screen
         name="profile"
         options={{
@@ -61,24 +85,24 @@ export default function TabLayout() {
               color={color}
               size={24}
             />
-            
           ),
         }}
       />
 
       <Tabs.Screen
-  name="teacher"
-  options={{
-    title: 'Teacher',
-    tabBarIcon: ({ color, focused }) => (
-      <Ionicons
-        name={focused ? 'school' : 'school-sharp'}
-        color={color}
-        size={24}
+        name="teacher"
+        options={{
+          title: 'Teacher',
+          href: isTeacher ? '/(tabs)/teacher' : null,
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? 'school' : 'school-sharp'}
+              color={color}
+              size={24}
+            />
+          ),
+        }}
       />
-    ),
-  }}
-/>
-
     </Tabs>
-  )}
+  );
+}
