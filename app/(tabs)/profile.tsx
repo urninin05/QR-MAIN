@@ -12,7 +12,7 @@ export default function ProfileScreen() {
   const router = useRouter();
 
   const [fullName, setFullName] = useState('');
-  const [role, setRole] = useState<'student' | 'teacher'>('student');
+  const [role, setRole] = useState<'student' | 'teacher' | 'admin'>('student');
   const [draftName, setDraftName] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);

@@ -44,5 +44,6 @@ export function useRole() {
     loading,
     isStudent: role === 'student',
     isTeacher: role === 'teacher',
+    isAdmin: role === 'admin',
   };
 }

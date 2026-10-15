@@ -62,38 +62,24 @@ export async function registerAttendance(
     };
   }
 
-  const title = payload.title ?? payload.event;
-
-  let event: { id: string; title: string } | null = null;
-
+  // Find the event created by the teacher.
+  // Students should NOT create events.
   const foundEvent = await getEventByCode(payload.event);
 
-  if (foundEvent) {
-    event = foundEvent;
-  } else {
-    const { data: newEvent, error: insertError } = await supabase
-      .from('events')
-      .insert([
-        {
-          event_code: payload.event,
-          title,
-          start_time: payload.start ?? null,
-          end_time: payload.end ?? null,
-        },
-      ])
-      .select('id, title')
-      .single();
-
-    if (insertError) {
-      return {
-        success: false,
-        message: 'Could not create event.',
-      };
-    }
-
-    event = newEvent;
+  if (!foundEvent) {
+    return {
+      success: false,
+      message:
+        'Event not found. Please ask the teacher to generate the QR again.',
+    };
   }
 
+  const event = {
+    id: foundEvent.id,
+    title: foundEvent.title,
+  };
+
+  // Register the student's attendance.
   const { error: attError } = await supabase
     .from('attendance')
     .insert([

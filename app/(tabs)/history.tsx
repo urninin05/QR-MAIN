@@ -3,18 +3,17 @@ import { useCallback, useState } from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 
 import { COLORS } from '@/constants/colors';
-import { useAuth } from '@/lib/auth';
-import { getProfile, type Role } from '@/lib/profiles';
+import { useRole } from '@/lib/useRole';
 import {
   getAttendanceHistory,
   getTeacherEventAttendance,
   type AttendanceRecord,
   type TeacherEventAttendance,
 } from '@/lib/attendance';
-export default function HistoryScreen() {
-  const { user } = useAuth();
 
-  const [role, setRole] = useState<Role | null>(null);
+export default function HistoryScreen() {
+  const { user, role, loading: roleLoading } = useRole();
+
   const [studentRecords, setStudentRecords] = useState<AttendanceRecord[]>([]);
   const [teacherEvents, setTeacherEvents] = useState<TeacherEventAttendance[]>(
     []
@@ -22,36 +21,27 @@ export default function HistoryScreen() {
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    if (!user) {
+    if (!user || roleLoading || !role) {
       setLoading(false);
       return;
     }
 
     setLoading(true);
 
-    const profile = await getProfile(user.id);
-    const currentRole = profile?.role ?? 'student';
+    if (role === 'teacher') {
+      const events = await getTeacherEventAttendance(user.id);
 
-    setRole(currentRole);
+      setTeacherEvents(events);
+      setStudentRecords([]);
+    } else {
+      const records = await getAttendanceHistory(user.id);
 
-   if (currentRole === 'teacher') {
-  const events = await getTeacherEventAttendance(user.id);
+      setStudentRecords(records);
+      setTeacherEvents([]);
+    }
 
-  setTeacherEvents(events);
-  setStudentRecords([]);
-} else {
-  const records = await getAttendanceHistory(user.id);
- const formattedRecords: AttendanceRecord[] = records;
-  
-
-  setStudentRecords(formattedRecords);
-  setTeacherEvents([]);
-}
-
-setLoading(false);
-
-
-  }, [user]);
+    setLoading(false);
+  }, [user, role, roleLoading]);
 
   useFocusEffect(
     useCallback(() => {
@@ -63,7 +53,7 @@ setLoading(false);
     <View style={styles.container}>
       <Text style={styles.title}>Attendance History</Text>
 
-      {loading ? (
+      {loading || roleLoading ? (
         <Text style={styles.subtitle}>Loading records...</Text>
       ) : role === 'teacher' ? (
         <TeacherHistory events={teacherEvents} />

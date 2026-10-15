@@ -5,9 +5,8 @@ import { COLORS } from '@/constants/colors';
 import { useRole } from '@/lib/useRole';
 
 export default function TabLayout() {
-  const { isStudent, isTeacher, loading } = useRole();
+  const { isTeacher, loading } = useRole();
 
-  // Wait until we know the user's role
   if (loading) {
     return null;
   }
@@ -32,13 +31,19 @@ export default function TabLayout() {
         },
       }}
     >
+      {/* HOME */}
       <Tabs.Screen
         name="index"
         options={{
           title: 'Home',
+
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
-              name={focused ? 'home-sharp' : 'home-outline'}
+              name={
+                focused
+                  ? 'home-sharp'
+                  : 'home-outline'
+              }
               color={color}
               size={24}
             />
@@ -46,14 +51,19 @@ export default function TabLayout() {
         }}
       />
 
+      {/* SCAN */}
       <Tabs.Screen
         name="scan"
         options={{
           title: 'Scan',
-          href: isStudent ? '/(tabs)/scan' : null,
+
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
-              name={focused ? 'qr-code' : 'qr-code-outline'}
+              name={
+                focused
+                  ? 'qr-code'
+                  : 'qr-code-outline'
+              }
               color={color}
               size={24}
             />
@@ -61,13 +71,19 @@ export default function TabLayout() {
         }}
       />
 
+      {/* HISTORY */}
       <Tabs.Screen
         name="history"
         options={{
           title: 'History',
+
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
-              name={focused ? 'time' : 'time-outline'}
+              name={
+                focused
+                  ? 'time'
+                  : 'time-outline'
+              }
               color={color}
               size={24}
             />
@@ -75,13 +91,19 @@ export default function TabLayout() {
         }}
       />
 
+      {/* PROFILE */}
       <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
+
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
-              name={focused ? 'person' : 'person-outline'}
+              name={
+                focused
+                  ? 'person'
+                  : 'person-outline'
+              }
               color={color}
               size={24}
             />
@@ -89,14 +111,23 @@ export default function TabLayout() {
         }}
       />
 
+      {/* TEACHER ONLY */}
       <Tabs.Screen
         name="teacher"
         options={{
           title: 'Teacher',
-          href: isTeacher ? '/(tabs)/teacher' : null,
+
+          href: isTeacher
+            ? '/(tabs)/teacher'
+            : null,
+
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
-              name={focused ? 'school' : 'school-sharp'}
+              name={
+                focused
+                  ? 'school'
+                  : 'school-sharp'
+              }
               color={color}
               size={24}
             />
