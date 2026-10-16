@@ -1,285 +1,208 @@
-import { useEffect, useState } from 'react';
+
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   View,
+  Pressable,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { COLORS } from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
-import { useRole } from '@/lib/useRole';
+import { COLORS } from '@/constants/colors';
 
-export default function ReportsScreen() {
-  const { isAdmin, loading: roleLoading } = useRole();
+type ReportStats = {
+  users: number;
+  students: number;
+  teachers: number;
+  admins: number;
+  events: number;
+  attendance: number;
+};
 
-  const [totalUsers, setTotalUsers] = useState(0);
-  const [students, setStudents] = useState(0);
-  const [teachers, setTeachers] = useState(0);
-  const [admins, setAdmins] = useState(0);
-  const [totalEvents, setTotalEvents] = useState(0);
-  const [totalAttendance, setTotalAttendance] = useState(0);
+export default function Reports() {
+  const [stats, setStats] = useState<ReportStats>({
+    users: 0,
+    students: 0,
+    teachers: 0,
+    admins: 0,
+    events: 0,
+    attendance: 0,
+  });
 
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
 
-  async function loadReports() {
-    setLoading(true);
-    setError(null);
+  const loadReports = useCallback(async () => {
+    setError('');
 
-    const [
-      usersResult,
-      studentsResult,
-      teachersResult,
-      adminsResult,
-      eventsResult,
-      attendanceResult,
-    ] = await Promise.all([
-      supabase
-        .from('profiles')
-        .select('id', { count: 'exact', head: true }),
+    const [usersResult, eventsResult, attendanceResult] =
+      await Promise.all([
+        supabase
+          .from('profiles')
+          .select('id, role'),
+        supabase
+          .from('events')
+          .select('id', { count: 'exact', head: true }),
+        supabase
+          .from('attendance')
+          .select('student_id', { count: 'exact', head: true }),
+      ]);
 
-      supabase
-        .from('profiles')
-        .select('id', { count: 'exact', head: true })
-        .eq('role', 'student'),
-
-      supabase
-        .from('profiles')
-        .select('id', { count: 'exact', head: true })
-        .eq('role', 'teacher'),
-
-      supabase
-        .from('profiles')
-        .select('id', { count: 'exact', head: true })
-        .eq('role', 'admin'),
-
-      supabase
-        .from('events')
-        .select('id', { count: 'exact', head: true }),
-
-      supabase
-        .from('attendance')
-        .select('id', { count: 'exact', head: true }),
-    ]);
-
-    const firstError =
+    const issue =
       usersResult.error ||
-      studentsResult.error ||
-      teachersResult.error ||
-      adminsResult.error ||
       eventsResult.error ||
       attendanceResult.error;
 
-    if (firstError) {
-      setError(firstError.message);
-      setLoading(false);
-      return;
-    }
+    if (issue) {
+      setError(issue.message);
+    } else {
+      const profiles = usersResult.data ?? [];
 
-    setTotalUsers(usersResult.count ?? 0);
-    setStudents(studentsResult.count ?? 0);
-    setTeachers(teachersResult.count ?? 0);
-    setAdmins(adminsResult.count ?? 0);
-    setTotalEvents(eventsResult.count ?? 0);
-    setTotalAttendance(attendanceResult.count ?? 0);
+      setStats({
+        users: profiles.length,
+        students: profiles.filter((user) => user.role === 'student').length,
+        teachers: profiles.filter((user) => user.role === 'teacher').length,
+        admins: profiles.filter((user) => user.role === 'admin').length,
+        events: eventsResult.count ?? 0,
+        attendance: attendanceResult.count ?? 0,
+      });
+    }
 
     setLoading(false);
-  }
+    setRefreshing(false);
+  }, []);
 
   useEffect(() => {
-    if (isAdmin) {
-      loadReports();
-    }
-  }, [isAdmin]);
+    void loadReports();
+  }, [loadReports]);
 
-  if (roleLoading || loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator
-          size="large"
-          color={COLORS.primary}
-        />
-
-        <Text style={styles.loadingText}>
-          Loading reports...
-        </Text>
-      </View>
-    );
-  }
-
-  if (!isAdmin) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Ionicons
-          name="lock-closed-outline"
-          size={40}
-          color={COLORS.danger}
-        />
-
-        <Text style={styles.accessDenied}>
-          Access denied.
-        </Text>
-
-        <Text style={styles.accessSubtext}>
-          Administrator access is required.
-        </Text>
-      </View>
-    );
-  }
+  const reportItems = [
+    {
+      title: 'Total Users',
+      value: stats.users,
+      icon: 'people-outline' as const,
+    },
+    {
+      title: 'Students',
+      value: stats.students,
+      icon: 'school-outline' as const,
+    },
+    {
+      title: 'Teachers',
+      value: stats.teachers,
+      icon: 'person-outline' as const,
+    },
+    {
+      title: 'Administrators',
+      value: stats.admins,
+      icon: 'shield-checkmark-outline' as const,
+    },
+    {
+      title: 'Total Events',
+      value: stats.events,
+      icon: 'calendar-outline' as const,
+    },
+    {
+      title: 'Attendance Records',
+      value: stats.attendance,
+      icon: 'clipboard-outline' as const,
+    },
+  ];
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-    >
-      <Text style={styles.title}>
-        Reports
-      </Text>
+    <View style={styles.container}>
+      <Text style={styles.pageLabel}>Reports</Text>
 
-      <Text style={styles.subtitle}>
-        Overall school event attendance summary.
-      </Text>
+      <View style={styles.header}>
+        <View style={styles.headerText}>
+          <Text style={styles.heading}>Reports</Text>
+          <Text style={styles.subtitle}>
+            Overall school event attendance summary.
+          </Text>
+        </View>
 
-      {error ? (
+        <Pressable
+          style={styles.refreshButton}
+          onPress={() => {
+            setRefreshing(true);
+            void loadReports();
+          }}
+          accessibilityLabel="Refresh reports"
+        >
+          <Ionicons
+            name="refresh-outline"
+            size={21}
+            color={COLORS.primary}
+          />
+        </Pressable>
+      </View>
+
+      {loading ? (
+        <View style={styles.loading}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+          <Text style={styles.subtitle}>Loading reports...</Text>
+        </View>
+      ) : error ? (
         <View style={styles.errorCard}>
           <Ionicons
             name="alert-circle-outline"
-            size={32}
+            size={25}
             color={COLORS.danger}
           />
-
-          <Text style={styles.errorText}>
-            {error}
-          </Text>
+          <Text style={styles.errorText}>{error}</Text>
+          <Pressable
+            style={styles.retryButton}
+            onPress={() => {
+              setLoading(true);
+              void loadReports();
+            }}
+          >
+            <Text style={styles.retryText}>Try Again</Text>
+          </Pressable>
         </View>
       ) : (
-        <>
-          <View style={styles.card}>
-            <View style={styles.iconBox}>
-              <Ionicons
-                name="people-outline"
-                size={30}
-                color={COLORS.primary}
-              />
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.content}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                void loadReports();
+              }}
+            />
+          }
+        >
+          {reportItems.map((item) => (
+            <View key={item.title} style={styles.card}>
+              <View style={styles.iconBox}>
+                <Ionicons
+                  name={item.icon}
+                  size={27}
+                  color={COLORS.primary}
+                />
+              </View>
+
+              <View style={styles.cardText}>
+                <Text style={styles.label}>{item.title}</Text>
+                <Text style={styles.value}>{item.value}</Text>
+              </View>
             </View>
+          ))}
 
-            <View style={styles.cardContent}>
-              <Text style={styles.cardTitle}>
-                Total Users
-              </Text>
-
-              <Text style={styles.number}>
-                {totalUsers}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.card}>
-            <View style={styles.iconBox}>
-              <Ionicons
-                name="school-outline"
-                size={30}
-                color={COLORS.primary}
-              />
-            </View>
-
-            <View style={styles.cardContent}>
-              <Text style={styles.cardTitle}>
-                Students
-              </Text>
-
-              <Text style={styles.number}>
-                {students}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.card}>
-            <View style={styles.iconBox}>
-              <Ionicons
-                name="person-outline"
-                size={30}
-                color={COLORS.primary}
-              />
-            </View>
-
-            <View style={styles.cardContent}>
-              <Text style={styles.cardTitle}>
-                Teachers
-              </Text>
-
-              <Text style={styles.number}>
-                {teachers}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.card}>
-            <View style={styles.iconBox}>
-              <Ionicons
-                name="shield-checkmark-outline"
-                size={30}
-                color={COLORS.primary}
-              />
-            </View>
-
-            <View style={styles.cardContent}>
-              <Text style={styles.cardTitle}>
-                Administrators
-              </Text>
-
-              <Text style={styles.number}>
-                {admins}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.card}>
-            <View style={styles.iconBox}>
-              <Ionicons
-                name="calendar-outline"
-                size={30}
-                color={COLORS.primary}
-              />
-            </View>
-
-            <View style={styles.cardContent}>
-              <Text style={styles.cardTitle}>
-                Total Events
-              </Text>
-
-              <Text style={styles.number}>
-                {totalEvents}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.card}>
-            <View style={styles.iconBox}>
-              <Ionicons
-                name="clipboard-outline"
-                size={30}
-                color={COLORS.primary}
-              />
-            </View>
-
-            <View style={styles.cardContent}>
-              <Text style={styles.cardTitle}>
-                Attendance Records
-              </Text>
-
-              <Text style={styles.number}>
-                {totalAttendance}
-              </Text>
-            </View>
-          </View>
-        </>
+          <Text style={styles.footer}>
+            Report totals are based on records currently accessible in
+            Supabase.
+          </Text>
+        </ScrollView>
       )}
-    </ScrollView>
+    </View>
   );
 }
 
@@ -287,102 +210,115 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.background,
+    paddingHorizontal: 20,
+    paddingTop: 12,
   },
-
-  content: {
-    padding: 24,
-    paddingBottom: 40,
+  pageLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+    marginBottom: 26,
   },
-
-  loadingContainer: {
-    flex: 1,
+  header: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.background,
-    padding: 24,
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 18,
   },
-
-  loadingText: {
-    marginTop: 10,
-    fontSize: 14,
-    color: COLORS.textSecondary,
+  headerText: {
+    flex: 1,
   },
-
-  title: {
-    fontSize: 28,
+  heading: {
+    fontSize: 25,
     fontWeight: '700',
     color: COLORS.textPrimary,
-    marginBottom: 6,
   },
-
   subtitle: {
-    fontSize: 14,
+    marginTop: 6,
+    fontSize: 13,
     color: COLORS.textSecondary,
-    marginBottom: 20,
   },
-
+  refreshButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.card,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+  },
+  scroll: {
+    flex: 1,
+  },
+  content: {
+    paddingBottom: 24,
+    gap: 13,
+  },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
+    minHeight: 86,
+    gap: 14,
     backgroundColor: COLORS.card,
+    padding: 16,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: COLORS.border,
-    borderRadius: 14,
-    padding: 18,
-    marginBottom: 14,
   },
-
   iconBox: {
-    width: 52,
-    height: 52,
-    borderRadius: 12,
-    backgroundColor: COLORS.background,
+    width: 48,
+    height: 48,
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 12,
+    backgroundColor: COLORS.background,
   },
-
-  cardContent: {
-    marginLeft: 16,
+  cardText: {
+    flex: 1,
+    gap: 5,
   },
-
-  cardTitle: {
-    fontSize: 14,
+  label: {
+    fontSize: 13,
     color: COLORS.textSecondary,
-    marginBottom: 4,
   },
-
-  number: {
-    fontSize: 26,
+  value: {
+    fontSize: 25,
     fontWeight: '700',
     color: COLORS.textPrimary,
   },
-
-  errorCard: {
+  loading: {
+    flex: 1,
     alignItems: 'center',
-    backgroundColor: COLORS.card,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 12,
-    padding: 24,
+    justifyContent: 'center',
+    gap: 10,
   },
-
+  errorCard: {
+    backgroundColor: COLORS.card,
+    padding: 18,
+    borderRadius: 12,
+    gap: 12,
+  },
   errorText: {
     color: COLORS.danger,
-    fontSize: 14,
-    textAlign: 'center',
-    marginTop: 10,
   },
-
-  accessDenied: {
-    color: COLORS.textPrimary,
-    fontSize: 18,
+  retryButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 9,
+  },
+  retryText: {
+    color: '#FFFFFF',
     fontWeight: '700',
-    marginTop: 12,
   },
-
-  accessSubtext: {
+  footer: {
+    marginTop: 6,
+    marginBottom: 12,
+    fontSize: 11,
+    lineHeight: 17,
     color: COLORS.textSecondary,
-    fontSize: 14,
-    marginTop: 5,
   },
 });

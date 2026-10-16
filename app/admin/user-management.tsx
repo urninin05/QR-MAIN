@@ -1,22 +1,21 @@
-import { useEffect, useState } from 'react';
+
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
   Modal,
   Pressable,
+  RefreshControl,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
-
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { router } from 'expo-router';
 
-import { COLORS } from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
-import { useRole } from '@/lib/useRole';
+import { COLORS } from '@/constants/colors';
 
 type UserRole = 'student' | 'teacher' | 'admin';
 
@@ -25,322 +24,262 @@ type UserProfile = {
   email: string;
   full_name: string | null;
   role: UserRole;
+  created_at?: string;
 };
 
-export default function UserManagementScreen() {
-  const { isAdmin, loading: roleLoading } = useRole();
-
+export default function UserManagement() {
   const [users, setUsers] = useState<UserProfile[]>([]);
+  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
 
-  const [editVisible, setEditVisible] = useState(false);
-  const [selectedUser, setSelectedUser] =
-    useState<UserProfile | null>(null);
-
-  const [editName, setEditName] = useState('');
-  const [editRole, setEditRole] =
-    useState<UserRole>('student');
-
+  const [modalVisible, setModalVisible] = useState(false);
+  const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
+  const [fullName, setFullName] = useState('');
+  const [role, setRole] = useState<UserRole>('student');
   const [saving, setSaving] = useState(false);
 
-  async function loadUsers() {
-    try {
-      setLoading(true);
-      setError(null);
+  const loadUsers = useCallback(async () => {
+    setError('');
 
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, email, full_name, role')
-        .order('full_name', {
-          ascending: true,
-        });
+    const { data, error: queryError } = await supabase
+      .from('profiles')
+      .select('id, email, full_name, role, created_at')
+      .order('created_at', { ascending: false });
 
-      if (error) {
-        throw new Error(error.message);
-      }
-
+    if (queryError) {
+      setError(queryError.message);
+      setUsers([]);
+    } else {
       setUsers((data ?? []) as UserProfile[]);
-    } catch (err: any) {
-      setError(
-        err?.message || 'Failed to load users.'
-      );
-    } finally {
-      setLoading(false);
     }
-  }
+
+    setLoading(false);
+    setRefreshing(false);
+  }, []);
 
   useEffect(() => {
-    if (isAdmin) {
-      loadUsers();
-    }
-  }, [isAdmin]);
+    void loadUsers();
+  }, [loadUsers]);
 
-  function openEdit(user: UserProfile) {
-    setSelectedUser(user);
-    setEditName(user.full_name || '');
-    setEditRole(user.role);
-    setEditVisible(true);
+  const filteredUsers = users.filter((user) => {
+    const query = search.trim().toLowerCase();
+
+    return (
+      (user.full_name ?? '').toLowerCase().includes(query) ||
+      user.email.toLowerCase().includes(query) ||
+      user.role.toLowerCase().includes(query)
+    );
+  });
+
+  function openAddModal() {
+    setEditingUser(null);
+    setFullName('');
+    setRole('student');
+    setModalVisible(true);
   }
 
-  function closeEdit() {
-    if (saving) return;
-
-    setEditVisible(false);
-    setSelectedUser(null);
-    setEditName('');
-    setEditRole('student');
+  function openEditModal(user: UserProfile) {
+    setEditingUser(user);
+    setFullName(user.full_name ?? '');
+    setRole(user.role);
+    setModalVisible(true);
   }
 
   async function saveUser() {
-    if (!selectedUser) return;
+    if (!fullName.trim()) {
+      Alert.alert('Missing Name', 'Please enter the user’s full name.');
+      return;
+    }
 
-    if (!editName.trim()) {
+    if (!editingUser) {
       Alert.alert(
-        'Missing Name',
-        "Please enter the user's full name."
+        'Create User',
+        'A profile alone cannot create a Supabase Auth account. Please register the user through your app first, then edit their profile here.',
       );
       return;
     }
 
     setSaving(true);
 
-    try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          full_name: editName.trim(),
-          role: editRole,
-        })
-        .eq('id', selectedUser.id);
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({
+        full_name: fullName.trim(),
+        role,
+      })
+      .eq('id', editingUser.id);
 
-      if (error) {
-        throw new Error(error.message);
-      }
+    setSaving(false);
 
-      Alert.alert(
-        'Success',
-        'User information has been updated.'
-      );
-
-      closeEdit();
-      await loadUsers();
-    } catch (err: any) {
+    if (updateError) {
       Alert.alert(
         'Update Failed',
-        err?.message || 'Could not update user.'
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function confirmDelete(user: UserProfile) {
-    // Prevent accidentally deleting the currently
-    // logged-in administrator.
-    if (user.role === 'admin') {
-      Alert.alert(
-        'Cannot Delete Administrator',
-        'Administrator accounts should not be deleted from this screen.'
+        `${updateError.message}\n\nCheck your Supabase RLS policies and role-protection trigger.`,
       );
       return;
     }
 
+    setModalVisible(false);
+    await loadUsers();
+    Alert.alert('Success', 'User details updated successfully.');
+  }
+
+  function confirmDelete(user: UserProfile) {
     Alert.alert(
-      'Delete User',
-      `Are you sure you want to delete ${user.full_name || user.email}?`,
+      'Delete Profile',
+      `Delete the profile for ${user.email}? This does not delete their Supabase Auth account.`,
       [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
+        { text: 'Cancel', style: 'cancel' },
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => deleteUser(user),
+          onPress: () => void deleteProfile(user),
         },
-      ]
+      ],
     );
   }
 
-  async function deleteUser(user: UserProfile) {
-    try {
-      const { error } = await supabase
-        .from('profiles')
-        .delete()
-        .eq('id', user.id);
+  async function deleteProfile(user: UserProfile) {
+    const { error: deleteError } = await supabase
+      .from('profiles')
+      .delete()
+      .eq('id', user.id);
 
-      if (error) {
-        throw new Error(error.message);
-      }
-
-      Alert.alert(
-        'Deleted',
-        'The user profile has been deleted.'
-      );
-
-      await loadUsers();
-    } catch (err: any) {
-      Alert.alert(
-        'Delete Failed',
-        err?.message || 'Could not delete user.'
-      );
+    if (deleteError) {
+      Alert.alert('Delete Failed', deleteError.message);
+      return;
     }
+
+    await loadUsers();
+    Alert.alert('Success', 'Profile deleted.');
   }
 
-  function addUser() {
-    Alert.alert(
-      'Add User',
-      'Create the account through registration first. After registration, the administrator can edit the user role here.',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Register User',
-          onPress: () => router.push('/register'),
-        },
-      ]
-    );
-  }
-
-  if (roleLoading) {
+  if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator
-          size="large"
-          color={COLORS.primary}
-        />
-      </View>
-    );
-  }
-
-  if (!isAdmin) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Ionicons
-          name="lock-closed-outline"
-          size={40}
-          color={COLORS.danger}
-        />
-
-        <Text style={styles.accessDenied}>
-          Access denied.
-        </Text>
-
-        <Text style={styles.accessSubtext}>
-          Administrator access is required.
-        </Text>
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+        <Text style={styles.muted}>Loading users...</Text>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <View style={styles.headerRow}>
+      <View style={styles.pageHeader}>
         <View style={styles.headerText}>
-          <Text style={styles.title}>
-            User Management
-          </Text>
-
-          <Text style={styles.subtitle}>
+          <Text style={styles.heading}>User Management</Text>
+          <Text style={styles.muted}>
             Manage students, teachers, and administrators.
           </Text>
         </View>
 
         <Pressable
           style={styles.addButton}
-          onPress={addUser}
+          onPress={openAddModal}
+          accessibilityRole="button"
         >
-          <Ionicons
-            name="add"
-            size={22}
-            color="#FFFFFF"
-          />
-
-          <Text style={styles.addButtonText}>
-            Add
-          </Text>
+          <Ionicons name="add" size={21} color="#FFFFFF" />
+          <Text style={styles.addButtonText}>Add</Text>
         </Pressable>
       </View>
 
-      {loading ? (
-        <ActivityIndicator
-          size="large"
-          color={COLORS.primary}
-          style={styles.loader}
+      <View style={styles.searchBox}>
+        <Ionicons
+          name="search-outline"
+          size={20}
+          color={COLORS.textSecondary}
         />
-      ) : error ? (
-        <View style={styles.messageCard}>
-          <Ionicons
-            name="alert-circle-outline"
-            size={32}
-            color={COLORS.danger}
-          />
+        <TextInput
+          style={styles.searchInput}
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search name, email, or role..."
+          placeholderTextColor="#888888"
+          autoCapitalize="none"
+        />
+        {search.length > 0 && (
+          <Pressable onPress={() => setSearch('')}>
+            <Ionicons
+              name="close-circle"
+              size={20}
+              color={COLORS.textSecondary}
+            />
+          </Pressable>
+        )}
+      </View>
 
-          <Text style={styles.errorText}>
-            {error}
-          </Text>
-        </View>
-      ) : users.length === 0 ? (
-        <View style={styles.messageCard}>
-          <Ionicons
-            name="people-outline"
-            size={40}
-            color={COLORS.textSecondary}
-          />
+      <Text style={styles.resultCount}>
+        {filteredUsers.length} user{filteredUsers.length === 1 ? '' : 's'}
+      </Text>
 
-          <Text style={styles.emptyTitle}>
-            No Users Found
-          </Text>
-
-          <Text style={styles.emptyText}>
-            No registered users are available.
-          </Text>
+      {error ? (
+        <View style={styles.errorBox}>
+          <Text style={styles.errorText}>{error}</Text>
+          <Pressable
+            style={styles.addButton}
+            onPress={() => void loadUsers()}
+          >
+            <Text style={styles.addButtonText}>Try Again</Text>
+          </Pressable>
         </View>
       ) : (
         <FlatList
-          data={users}
+          data={filteredUsers}
           keyExtractor={(item) => item.id}
-          showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.list}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                void loadUsers();
+              }}
+            />
+          }
+          ListEmptyComponent={
+            <Text style={styles.empty}>No matching users found.</Text>
+          }
           renderItem={({ item }) => (
             <View style={styles.userCard}>
-              <View style={styles.iconContainer}>
+              <View style={styles.avatar}>
                 <Ionicons
                   name={
                     item.role === 'admin'
                       ? 'shield-checkmark-outline'
                       : item.role === 'teacher'
-                      ? 'school-outline'
-                      : 'person-outline'
+                        ? 'school-outline'
+                        : 'person-outline'
                   }
-                  size={26}
+                  size={25}
                   color={COLORS.primary}
                 />
               </View>
 
               <View style={styles.userInfo}>
                 <Text style={styles.userName}>
-                  {item.full_name || 'No name'}
+                  {item.full_name?.trim() || 'No name'}
                 </Text>
+                <Text style={styles.email}>{item.email}</Text>
 
-                <Text style={styles.userEmail}>
-                  {item.email}
-                </Text>
-
-                <View style={styles.roleBadge}>
+                <View
+                  style={[
+                    styles.roleBadge,
+                    item.role === 'admin' && styles.adminBadge,
+                  ]}
+                >
                   <Text style={styles.roleText}>
                     {item.role.toUpperCase()}
                   </Text>
                 </View>
               </View>
 
-              <View style={styles.actions}>
+              <View style={styles.iconActions}>
                 <Pressable
-                  style={styles.editButton}
-                  onPress={() => openEdit(item)}
+                  style={styles.iconButton}
+                  onPress={() => openEditModal(item)}
+                  accessibilityLabel={`Edit ${item.email}`}
                 >
                   <Ionicons
                     name="create-outline"
@@ -349,155 +288,103 @@ export default function UserManagementScreen() {
                   />
                 </Pressable>
 
-                {item.role !== 'admin' && (
-                  <Pressable
-                    style={styles.deleteButton}
-                    onPress={() =>
-                      confirmDelete(item)
-                    }
-                  >
-                    <Ionicons
-                      name="trash-outline"
-                      size={21}
-                      color={COLORS.danger}
-                    />
-                  </Pressable>
-                )}
+                <Pressable
+                  style={styles.iconButton}
+                  onPress={() => confirmDelete(item)}
+                  accessibilityLabel={`Delete ${item.email}`}
+                >
+                  <Ionicons
+                    name="trash-outline"
+                    size={21}
+                    color={COLORS.danger}
+                  />
+                </Pressable>
               </View>
             </View>
           )}
         />
       )}
 
-      {/* EDIT USER MODAL */}
       <Modal
-        visible={editVisible}
+        visible={modalVisible}
         transparent
         animationType="fade"
-        onRequestClose={closeEdit}
+        onRequestClose={() => setModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
+        <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>
-              Edit User
+              {editingUser ? 'Edit User' : 'Add User'}
             </Text>
 
-            <Text style={styles.modalEmail}>
-              {selectedUser?.email}
-            </Text>
+            {editingUser && (
+              <Text style={styles.modalEmail}>{editingUser.email}</Text>
+            )}
 
-            <Text style={styles.inputLabel}>
-              Full Name
-            </Text>
+            {!editingUser && (
+              <Text style={styles.modalHint}>
+                Register the account through your app first. This form can
+                create a profile only for an existing account.
+              </Text>
+            )}
 
+            <Text style={styles.fieldLabel}>Full Name</Text>
             <TextInput
-              value={editName}
-              onChangeText={setEditName}
-              placeholder="Full name"
-              placeholderTextColor={
-                COLORS.textSecondary
-              }
-              style={styles.input}
-              editable={!saving}
+              style={styles.nameInput}
+              value={fullName}
+              onChangeText={setFullName}
+              placeholder="Enter full name"
+              placeholderTextColor="#888888"
+              autoCapitalize="words"
             />
 
-            <Text style={styles.inputLabel}>
-              Role
-            </Text>
-
+            <Text style={styles.fieldLabel}>Role</Text>
             <View style={styles.roleOptions}>
-              <Pressable
-                style={[
-                  styles.roleOption,
-                  editRole === 'student' &&
-                    styles.roleOptionActive,
-                ]}
-                onPress={() =>
-                  setEditRole('student')
-                }
-                disabled={saving}
-              >
-                <Text
-                  style={[
-                    styles.roleOptionText,
-                    editRole === 'student' &&
-                      styles.roleOptionTextActive,
-                  ]}
-                >
-                  Student
-                </Text>
-              </Pressable>
-
-              <Pressable
-                style={[
-                  styles.roleOption,
-                  editRole === 'teacher' &&
-                    styles.roleOptionActive,
-                ]}
-                onPress={() =>
-                  setEditRole('teacher')
-                }
-                disabled={saving}
-              >
-                <Text
-                  style={[
-                    styles.roleOptionText,
-                    editRole === 'teacher' &&
-                      styles.roleOptionTextActive,
-                  ]}
-                >
-                  Teacher
-                </Text>
-              </Pressable>
-
-              <Pressable
-                style={[
-                  styles.roleOption,
-                  editRole === 'admin' &&
-                    styles.roleOptionActive,
-                ]}
-                onPress={() =>
-                  setEditRole('admin')
-                }
-                disabled={saving}
-              >
-                <Text
-                  style={[
-                    styles.roleOptionText,
-                    editRole === 'admin' &&
-                      styles.roleOptionTextActive,
-                  ]}
-                >
-                  Admin
-                </Text>
-              </Pressable>
+              {(['student', 'teacher', 'admin'] as UserRole[]).map(
+                (itemRole) => (
+                  <Pressable
+                    key={itemRole}
+                    style={[
+                      styles.roleOption,
+                      role === itemRole && styles.selectedRole,
+                    ]}
+                    onPress={() => setRole(itemRole)}
+                  >
+                    <Text
+                      style={[
+                        styles.roleOptionText,
+                        role === itemRole && styles.selectedRoleText,
+                      ]}
+                    >
+                      {itemRole.charAt(0).toUpperCase() +
+                        itemRole.slice(1)}
+                    </Text>
+                  </Pressable>
+                ),
+              )}
             </View>
 
             <View style={styles.modalActions}>
               <Pressable
                 style={styles.cancelButton}
-                onPress={closeEdit}
+                onPress={() => setModalVisible(false)}
                 disabled={saving}
               >
-                <Text style={styles.cancelText}>
-                  Cancel
-                </Text>
+                <Text style={styles.cancelText}>Cancel</Text>
               </Pressable>
 
               <Pressable
-                style={styles.saveButton}
-                onPress={saveUser}
+                style={[
+                  styles.saveButton,
+                  saving && styles.disabledButton,
+                ]}
+                onPress={() => void saveUser()}
                 disabled={saving}
               >
                 {saving ? (
-                  <ActivityIndicator
-                    size="small"
-                    color="#FFFFFF"
-                  />
+                  <ActivityIndicator color="#FFFFFF" />
                 ) : (
-                  <Text style={styles.saveText}>
-                    Save Changes
-                  </Text>
+                  <Text style={styles.saveText}>Save Changes</Text>
                 )}
               </Pressable>
             </View>
@@ -512,294 +399,257 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.background,
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingTop: 20,
   },
-
-  loadingContainer: {
+  center: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: COLORS.background,
-    padding: 24,
+    padding: 20,
   },
-
-  headerRow: {
+  pageHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
     marginBottom: 20,
   },
-
   headerText: {
     flex: 1,
-    paddingRight: 10,
   },
-
-  title: {
-    fontSize: 28,
+  heading: {
+    fontSize: 25,
     fontWeight: '700',
     color: COLORS.textPrimary,
-    marginBottom: 6,
   },
-
-  subtitle: {
-    fontSize: 14,
+  muted: {
+    marginTop: 6,
+    fontSize: 13,
     color: COLORS.textSecondary,
-    lineHeight: 20,
   },
-
   addButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 4,
     backgroundColor: COLORS.primary,
     paddingHorizontal: 14,
     paddingVertical: 11,
     borderRadius: 10,
-    gap: 5,
   },
-
   addButtonText: {
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '700',
   },
-
-  loader: {
-    marginTop: 40,
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.card,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    minHeight: 48,
   },
-
+  searchInput: {
+    flex: 1,
+    paddingVertical: 11,
+    color: COLORS.textPrimary,
+    outlineStyle: 'none',
+  } as any,
+  resultCount: {
+    marginTop: 12,
+    marginBottom: 10,
+    fontSize: 12,
+    color: COLORS.textSecondary,
+  },
   list: {
-    paddingBottom: 100,
+    paddingBottom: 20,
+    gap: 12,
   },
-
   userCard: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
     backgroundColor: COLORS.card,
     borderWidth: 1,
     borderColor: COLORS.border,
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 14,
-    marginBottom: 12,
   },
-
-  iconContainer: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: COLORS.background,
+  avatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: COLORS.background,
   },
-
   userInfo: {
     flex: 1,
-    marginLeft: 12,
-    marginRight: 8,
+    gap: 4,
   },
-
   userName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: COLORS.textPrimary,
-    marginBottom: 3,
   },
-
-  userEmail: {
-    fontSize: 13,
+  email: {
+    fontSize: 12,
     color: COLORS.textSecondary,
-    marginBottom: 8,
   },
-
   roleBadge: {
     alignSelf: 'flex-start',
-    paddingHorizontal: 9,
+    marginTop: 4,
+    paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
     backgroundColor: COLORS.background,
   },
-
+  adminBadge: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
   roleText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
     color: COLORS.primary,
   },
-
-  actions: {
+  iconActions: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 4,
   },
-
-  editButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: COLORS.background,
+  iconButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
   },
-
-  deleteButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: COLORS.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  messageCard: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.card,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 12,
+  empty: {
     padding: 24,
-    marginTop: 20,
+    textAlign: 'center',
+    color: COLORS.textSecondary,
   },
-
+  errorBox: {
+    padding: 16,
+    gap: 12,
+    backgroundColor: COLORS.card,
+    borderRadius: 12,
+  },
   errorText: {
     color: COLORS.danger,
-    fontSize: 14,
-    textAlign: 'center',
-    marginTop: 10,
   },
-
-  emptyTitle: {
-    color: COLORS.textPrimary,
-    fontSize: 17,
-    fontWeight: '700',
-    marginTop: 10,
-  },
-
-  emptyText: {
-    color: COLORS.textSecondary,
-    fontSize: 14,
-    textAlign: 'center',
-    marginTop: 5,
-  },
-
-  accessDenied: {
-    color: COLORS.textPrimary,
-    fontSize: 18,
-    fontWeight: '700',
-    marginTop: 12,
-  },
-
-  accessSubtext: {
-    color: COLORS.textSecondary,
-    fontSize: 14,
-    marginTop: 5,
-  },
-
-  modalOverlay: {
+  modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    backgroundColor: 'rgba(0,0,0,0.48)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
   },
-
   modalCard: {
     width: '100%',
-    maxWidth: 500,
+    maxWidth: 460,
     backgroundColor: COLORS.card,
     borderRadius: 18,
-    padding: 24,
+    padding: 22,
   },
-
   modalTitle: {
     fontSize: 23,
     fontWeight: '700',
     color: COLORS.textPrimary,
   },
-
   modalEmail: {
-    marginTop: 5,
-    marginBottom: 22,
-    fontSize: 13,
+    marginTop: 6,
+    marginBottom: 20,
+    fontSize: 12,
     color: COLORS.textSecondary,
   },
-
-  inputLabel: {
-    fontSize: 14,
+  modalHint: {
+    marginTop: 8,
+    marginBottom: 18,
+    lineHeight: 19,
+    fontSize: 12,
+    color: COLORS.textSecondary,
+  },
+  fieldLabel: {
+    marginTop: 14,
+    marginBottom: 8,
+    fontSize: 13,
     fontWeight: '600',
     color: COLORS.textPrimary,
-    marginBottom: 7,
   },
-
-  input: {
-    height: 50,
+  nameInput: {
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: 10,
-    paddingHorizontal: 14,
-    color: COLORS.textPrimary,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
     backgroundColor: COLORS.background,
-    marginBottom: 18,
+    color: COLORS.textPrimary,
   },
-
   roleOptions: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 24,
   },
-
   roleOption: {
     flex: 1,
+    minHeight: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: 10,
-    paddingVertical: 11,
-    alignItems: 'center',
+    paddingHorizontal: 4,
   },
-
-  roleOptionActive: {
+  selectedRole: {
     backgroundColor: COLORS.primary,
     borderColor: COLORS.primary,
   },
-
   roleOptionText: {
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 12,
     color: COLORS.textSecondary,
   },
-
-  roleOptionTextActive: {
+  selectedRoleText: {
     color: '#FFFFFF',
+    fontWeight: '700',
   },
-
   modalActions: {
     flexDirection: 'row',
     gap: 10,
+    marginTop: 24,
   },
-
   cancelButton: {
     flex: 1,
-    paddingVertical: 13,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    alignItems: 'center',
-  },
-
-  cancelText: {
-    color: COLORS.textSecondary,
-    fontWeight: '700',
-  },
-
-  saveButton: {
-    flex: 1,
-    paddingVertical: 13,
-    borderRadius: 10,
-    backgroundColor: COLORS.primary,
+    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
   },
-
+  cancelText: {
+    color: COLORS.textPrimary,
+    fontWeight: '600',
+  },
+  saveButton: {
+    flex: 1,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.primary,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+  },
   saveText: {
     color: '#FFFFFF',
     fontWeight: '700',
+  },
+  disabledButton: {
+    opacity: 0.6,
   },
 });

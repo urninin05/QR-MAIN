@@ -25,3 +25,12 @@ expo-env.d.ts
 
 # teaching materials
 docs/
+# environment secrets
+.env.*
+!.env.example
+
+# local Expo files
+.expo/
+
+# dependencies
+node_modules/

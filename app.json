@@ -8,22 +8,18 @@
     "scheme": "qr-attendance",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-
     "ios": {
       "supportsTablet": true
     },
-
     "android": {
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.sgrbdd.QRATT"
     },
-
     "web": {
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
-
     "plugins": [
       "expo-router",
       [
@@ -36,13 +32,13 @@
         }
       ],
       "expo-sqlite",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-image",
+      "expo-secure-store"
     ],
-
     "experiments": {
       "reactCompiler": true
     },
-
     "extra": {
       "router": {},
       "eas": {

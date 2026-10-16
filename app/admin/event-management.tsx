@@ -1,667 +1,703 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
   Modal,
   Pressable,
+  RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
-
 import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { COLORS } from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
-import { useRole } from '@/lib/useRole';
+import { COLORS } from '@/constants/colors';
 
-type Event = {
+type EventStatus = 'open' | 'closed';
+
+type EventItem = {
   id: string;
   event_code: string;
   title: string;
   start_time: string;
   end_time: string;
-  created_by: string | null;
-  created_at: string;
+  venue: string | null;
+  description: string | null;
+  status: EventStatus;
+  created_at?: string;
 };
 
-export default function EventManagementScreen() {
-  const { isAdmin, loading: roleLoading } = useRole();
-
-  const [events, setEvents] = useState<Event[]>([]);
+export default function EventManagement() {
+  const [events, setEvents] = useState<EventItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
 
   const [modalVisible, setModalVisible] = useState(false);
-  const [editingEvent, setEditingEvent] =
-    useState<Event | null>(null);
+  const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
 
   const [title, setTitle] = useState('');
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
+  const [venue, setVenue] = useState('');
+  const [description, setDescription] = useState('');
+  const [status, setStatus] = useState<EventStatus>('open');
 
-  // =========================
-  // LOAD EVENTS
-  // =========================
+  const [saving, setSaving] = useState(false);
 
-  async function loadEvents() {
-    setLoading(true);
+  const loadEvents = useCallback(async () => {
+    setError('');
 
-    const { data, error } = await supabase
-      .from('events')
-      .select(
-        'id, event_code, title, start_time, end_time, created_by, created_at'
-      )
-      .order('created_at', {
-        ascending: false,
-      });
+    try {
+      const { data, error: queryError } = await supabase
+        .from('events')
+        .select(
+          'id, event_code, title, start_time, end_time, venue, description, status, created_at',
+        )
+        .order('created_at', { ascending: false });
 
-    if (error) {
-      Alert.alert('Error', error.message);
+      if (queryError) throw queryError;
+
+      setEvents((data ?? []) as EventItem[]);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Unable to load events.';
+      setError(message);
+      setEvents([]);
+    } finally {
       setLoading(false);
-      return;
+      setRefreshing(false);
     }
-
-    setEvents((data ?? []) as Event[]);
-    setLoading(false);
-  }
+  }, []);
 
   useEffect(() => {
-    if (isAdmin) {
-      loadEvents();
-    }
-  }, [isAdmin]);
+    void loadEvents();
+  }, [loadEvents]);
 
-  // =========================
-  // OPEN ADD
-  // =========================
+  const filteredEvents = events.filter((event) =>
+    `${event.title} ${event.event_code} ${event.venue ?? ''} ${
+      event.description ?? ''
+    }`
+      .toLowerCase()
+      .includes(search.trim().toLowerCase()),
+  );
+
+  function toLocalInput(value: string) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+
+    const pad = (number: number) => String(number).padStart(2, '0');
+
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+      date.getDate(),
+    )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  }
+
+  function parseDate(value: string) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function makeEventCode() {
+    return `EVT-${Date.now().toString().slice(-8)}`;
+  }
 
   function openAddModal() {
     setEditingEvent(null);
     setTitle('');
     setStartTime('');
     setEndTime('');
+    setVenue('');
+    setDescription('');
+    setStatus('open');
     setModalVisible(true);
   }
 
-  // =========================
-  // OPEN EDIT
-  // =========================
-
-  function openEditModal(event: Event) {
+  function openEditModal(event: EventItem) {
     setEditingEvent(event);
-
     setTitle(event.title);
-
-    setStartTime(
-      event.start_time
-        .replace('T', ' ')
-        .slice(0, 16)
-    );
-
-    setEndTime(
-      event.end_time
-        .replace('T', ' ')
-        .slice(0, 16)
-    );
-
+    setStartTime(toLocalInput(event.start_time));
+    setEndTime(toLocalInput(event.end_time));
+    setVenue(event.venue ?? '');
+    setDescription(event.description ?? '');
+    setStatus(event.status ?? 'open');
     setModalVisible(true);
   }
-
-  // =========================
-  // CLOSE MODAL
-  // =========================
-
-  function closeModal() {
-    if (saving) return;
-
-    setModalVisible(false);
-    setEditingEvent(null);
-    setTitle('');
-    setStartTime('');
-    setEndTime('');
-  }
-
-  // =========================
-  // CONVERT DATE
-  // =========================
-
-  function convertToISO(value: string) {
-    const cleaned = value
-      .trim()
-      .replace(' ', 'T');
-
-    const date = new Date(cleaned);
-
-    if (Number.isNaN(date.getTime())) {
-      return null;
-    }
-
-    return date.toISOString();
-  }
-
-  // =========================
-  // GENERATE EVENT CODE
-  // =========================
-
-  function generateEventCode() {
-    return `EVT-${Date.now()
-      .toString(36)
-      .toUpperCase()}`;
-  }
-
-  // =========================
-  // SAVE EVENT
-  // =========================
 
   async function saveEvent() {
-    if (!title.trim()) {
+    const cleanTitle = title.trim();
+    const start = parseDate(startTime);
+    const end = parseDate(endTime);
+
+    if (!cleanTitle) {
+      Alert.alert('Missing Title', 'Please enter an event title.');
+      return;
+    }
+
+    if (!start || !end) {
       Alert.alert(
-        'Missing Title',
-        'Please enter an event title.'
+        'Invalid Date/Time',
+        'Enter valid dates in YYYY-MM-DDTHH:mm format.',
       );
       return;
     }
 
-    if (!startTime.trim()) {
-      Alert.alert(
-        'Missing Start Time',
-        'Please enter the start time.'
-      );
-      return;
-    }
-
-    if (!endTime.trim()) {
-      Alert.alert(
-        'Missing End Time',
-        'Please enter the end time.'
-      );
-      return;
-    }
-
-    const startISO = convertToISO(startTime);
-    const endISO = convertToISO(endTime);
-
-    if (!startISO || !endISO) {
-      Alert.alert(
-        'Invalid Date',
-        'Use this format:\nYYYY-MM-DD HH:mm\n\nExample:\n2026-10-20 13:00'
-      );
-      return;
-    }
-
-    if (
-      new Date(endISO).getTime() <=
-      new Date(startISO).getTime()
-    ) {
-      Alert.alert(
-        'Invalid Time',
-        'End time must be later than start time.'
-      );
+    if (end <= start) {
+      Alert.alert('Invalid Time', 'End time must be after start time.');
       return;
     }
 
     setSaving(true);
 
     try {
-      // =========================
-      // EDIT
-      // =========================
+      const eventData = {
+        title: cleanTitle,
+        start_time: start.toISOString(),
+        end_time: end.toISOString(),
+        venue: venue.trim() || null,
+        description: description.trim() || null,
+        status,
+      };
 
       if (editingEvent) {
-        const { error } = await supabase
+        const { error: updateError } = await supabase
           .from('events')
-          .update({
-            title: title.trim(),
-            start_time: startISO,
-            end_time: endISO,
-          })
+          .update(eventData)
           .eq('id', editingEvent.id);
 
-        if (error) {
-          throw new Error(error.message);
-        }
-
-        Alert.alert(
-          'Success',
-          'Event has been updated.'
-        );
-      }
-
-      // =========================
-      // ADD
-      // =========================
-
-      else {
+        if (updateError) throw updateError;
+      } else {
         const {
           data: { user },
+          error: userError,
         } = await supabase.auth.getUser();
 
+        if (userError) throw userError;
+
         if (!user) {
-          throw new Error(
-            'You are not currently logged in.'
-          );
+          Alert.alert('Not Signed In', 'Please sign in again and retry.');
+          return;
         }
 
-        const { error } = await supabase
-          .from('events')
-          .insert({
-            event_code: generateEventCode(),
-            title: title.trim(),
-            start_time: startISO,
-            end_time: endISO,
-            created_by: user.id,
-          });
+        const { error: insertError } = await supabase.from('events').insert({
+          ...eventData,
+          event_code: makeEventCode(),
+          created_by: user.id,
+        });
 
-        if (error) {
-          throw new Error(error.message);
-        }
-
-        Alert.alert(
-          'Success',
-          'New event has been created.'
-        );
+        if (insertError) throw insertError;
       }
 
-      closeModal();
+      setModalVisible(false);
       await loadEvents();
-    } catch (error: any) {
+
       Alert.alert(
-        'Operation Failed',
-        error?.message ||
-          'Something went wrong.'
+        'Success',
+        editingEvent
+          ? 'Event updated successfully.'
+          : 'Event created successfully.',
+      );
+    } catch (err) {
+      Alert.alert(
+        'Save Failed',
+        err instanceof Error ? err.message : 'Unable to save event.',
       );
     } finally {
       setSaving(false);
     }
   }
 
-  // =========================
-  // DELETE
-  // =========================
+  function closeEvent(event: EventItem) {
+    if (event.status === 'closed') {
+      Alert.alert('Event Closed', 'This event is already closed.');
+      return;
+    }
 
-  function confirmDelete(event: Event) {
     Alert.alert(
-      'Delete Event',
-      `Are you sure you want to delete "${event.title}"?`,
+      'Close Event',
+      `Close "${event.title}"? Students should no longer be allowed to record attendance for this event.`,
       [
+        { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Delete',
+          text: 'Close Event',
           style: 'destructive',
-          onPress: () => deleteEvent(event),
+          onPress: () => void updateEventStatus(event, 'closed'),
         },
-      ]
+      ],
     );
   }
 
-  async function deleteEvent(event: Event) {
+  async function updateEventStatus(
+    event: EventItem,
+    newStatus: EventStatus,
+  ) {
     try {
-      const { error } = await supabase
+      const { error: updateError } = await supabase
         .from('events')
-        .delete()
+        .update({ status: newStatus })
         .eq('id', event.id);
 
-      if (error) {
-        throw new Error(error.message);
-      }
-
-      Alert.alert(
-        'Deleted',
-        'The event has been deleted.'
-      );
+      if (updateError) throw updateError;
 
       await loadEvents();
-    } catch (error: any) {
+
       Alert.alert(
-        'Delete Failed',
-        error?.message ||
-          'Could not delete the event.'
+        'Success',
+        newStatus === 'closed'
+          ? 'The event has been closed.'
+          : 'The event has been reopened.',
+      );
+    } catch (err) {
+      Alert.alert(
+        'Status Update Failed',
+        err instanceof Error
+          ? err.message
+          : 'Unable to update event status.',
       );
     }
   }
 
-  // =========================
-  // LOADING
-  // =========================
-
-  if (roleLoading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator
-          size="large"
-          color={COLORS.primary}
-        />
-      </View>
+  function confirmDelete(event: EventItem) {
+    Alert.alert(
+      'Delete Event',
+      `Are you sure you want to delete "${event.title}"? This action cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => void deleteEvent(event),
+        },
+      ],
     );
   }
 
-  // =========================
-  // ACCESS DENIED
-  // =========================
+  async function deleteEvent(event: EventItem) {
+    try {
+      const { error: deleteError } = await supabase
+        .from('events')
+        .delete()
+        .eq('id', event.id);
 
-  if (!isAdmin) {
+      if (deleteError) throw deleteError;
+
+      await loadEvents();
+      Alert.alert('Success', 'Event deleted.');
+    } catch (err) {
+      Alert.alert(
+        'Delete Failed',
+        err instanceof Error
+          ? `${err.message}\n\nCheck your Supabase permissions and whether this event has attendance records.`
+          : 'Unable to delete event.',
+      );
+    }
+  }
+
+  if (loading) {
     return (
       <View style={styles.center}>
-        <Ionicons
-          name="lock-closed-outline"
-          size={45}
-          color={COLORS.danger}
-        />
-
-        <Text style={styles.deniedTitle}>
-          Access Denied
-        </Text>
-
-        <Text style={styles.deniedText}>
-          Administrator access is required.
-        </Text>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+        <Text style={styles.muted}>Loading events...</Text>
       </View>
     );
   }
-
-  // =========================
-  // SCREEN
-  // =========================
 
   return (
     <View style={styles.container}>
-
-      {/* HEADER */}
-
-      <View style={styles.header}>
+      <View style={styles.pageHeader}>
         <View style={styles.headerText}>
-          <Text style={styles.title}>
-            Event Management
-          </Text>
-
-          <Text style={styles.subtitle}>
-            Add, edit, delete, and manage school events.
+          <Text style={styles.heading}>Event Management</Text>
+          <Text style={styles.muted}>
+            Create, edit, close, and manage school events.
           </Text>
         </View>
 
-        <Pressable
-          style={styles.addButton}
-          onPress={openAddModal}
-        >
-          <Ionicons
-            name="add"
-            size={22}
-            color="#FFFFFF"
-          />
-
-          <Text style={styles.addButtonText}>
-            Add
-          </Text>
+        <Pressable style={styles.addButton} onPress={openAddModal}>
+          <Ionicons name="add" size={21} color="#FFFFFF" />
+          <Text style={styles.addButtonText}>Add Event</Text>
         </Pressable>
       </View>
 
-      {/* EVENTS */}
+      <View style={styles.searchBox}>
+        <Ionicons
+          name="search-outline"
+          size={20}
+          color={COLORS.textSecondary}
+        />
+        <TextInput
+          style={styles.searchInput}
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search events, venue, or description..."
+          placeholderTextColor="#888888"
+          autoCapitalize="none"
+        />
+      </View>
 
-      {loading ? (
-        <View style={styles.centerContent}>
-          <ActivityIndicator
-            size="large"
-            color={COLORS.primary}
-          />
-
-          <Text style={styles.loadingText}>
-            Loading events...
-          </Text>
-        </View>
-      ) : events.length === 0 ? (
-        <View style={styles.emptyCard}>
+      {error ? (
+        <View style={styles.errorBox}>
           <Ionicons
-            name="calendar-outline"
-            size={45}
-            color={COLORS.textSecondary}
+            name="alert-circle-outline"
+            size={23}
+            color={COLORS.danger}
           />
-
-          <Text style={styles.emptyTitle}>
-            No Events Found
-          </Text>
-
-          <Text style={styles.emptyText}>
-            Click Add to create your first event.
-          </Text>
+          <Text style={styles.errorText}>{error}</Text>
+          <Pressable
+            style={styles.addButton}
+            onPress={() => {
+              setLoading(true);
+              void loadEvents();
+            }}
+          >
+            <Text style={styles.addButtonText}>Try Again</Text>
+          </Pressable>
         </View>
       ) : (
         <FlatList
-          data={events}
+          data={filteredEvents}
           keyExtractor={(item) => item.id}
-          showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.list}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                void loadEvents();
+              }}
+            />
+          }
+          ListEmptyComponent={
+            <Text style={styles.empty}>No events found.</Text>
+          }
           renderItem={({ item }) => (
             <View style={styles.eventCard}>
-
-              {/* EVENT TITLE */}
-
-              <View style={styles.eventHeader}>
+              <View style={styles.eventHeading}>
                 <View style={styles.eventIcon}>
                   <Ionicons
-                    name="calendar"
-                    size={27}
+                    name="calendar-outline"
+                    size={26}
                     color={COLORS.primary}
                   />
                 </View>
 
                 <View style={styles.eventInfo}>
-                  <Text style={styles.eventTitle}>
-                    {item.title}
-                  </Text>
-
+                  <Text style={styles.eventTitle}>{item.title}</Text>
                   <Text style={styles.eventCode}>
                     Event Code: {item.event_code}
                   </Text>
                 </View>
-              </View>
 
-              {/* START */}
-
-              <View style={styles.detailRow}>
-                <Ionicons
-                  name="play-circle-outline"
-                  size={21}
-                  color={COLORS.primary}
-                />
-
-                <View>
-                  <Text style={styles.detailLabel}>
-                    Start Time
-                  </Text>
-
-                  <Text style={styles.detailValue}>
-                    {item.start_time}
-                  </Text>
-                </View>
-              </View>
-
-              {/* END */}
-
-              <View style={styles.detailRow}>
-                <Ionicons
-                  name="stop-circle-outline"
-                  size={21}
-                  color={COLORS.primary}
-                />
-
-                <View>
-                  <Text style={styles.detailLabel}>
-                    End Time
-                  </Text>
-
-                  <Text style={styles.detailValue}>
-                    {item.end_time}
+                <View
+                  style={[
+                    styles.statusBadge,
+                    item.status === 'closed'
+                      ? styles.closedBadge
+                      : styles.openBadge,
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.statusDot,
+                      item.status === 'closed'
+                        ? styles.closedDot
+                        : styles.openDot,
+                    ]}
+                  />
+                  <Text
+                    style={[
+                      styles.statusText,
+                      item.status === 'closed'
+                        ? styles.closedText
+                        : styles.openText,
+                    ]}
+                  >
+                    {item.status === 'closed' ? 'Closed' : 'Open'}
                   </Text>
                 </View>
               </View>
 
-              {/* ACTIONS */}
+              <View style={styles.detailRow}>
+                <Ionicons
+                  name="time-outline"
+                  size={19}
+                  color={COLORS.textSecondary}
+                />
+                <View style={styles.detailInfo}>
+                  <Text style={styles.detailLabel}>Start Time</Text>
+                  <Text style={styles.detailValue}>
+                    {new Date(item.start_time).toLocaleString()}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.detailRow}>
+                <Ionicons
+                  name="time-outline"
+                  size={19}
+                  color={COLORS.textSecondary}
+                />
+                <View style={styles.detailInfo}>
+                  <Text style={styles.detailLabel}>End Time</Text>
+                  <Text style={styles.detailValue}>
+                    {new Date(item.end_time).toLocaleString()}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.detailRow}>
+                <Ionicons
+                  name="location-outline"
+                  size={19}
+                  color={COLORS.textSecondary}
+                />
+                <View style={styles.detailInfo}>
+                  <Text style={styles.detailLabel}>Venue</Text>
+                  <Text style={styles.detailValue}>
+                    {item.venue?.trim() || 'Not specified'}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.descriptionBox}>
+                <Text style={styles.detailLabel}>Description</Text>
+                <Text style={styles.descriptionText}>
+                  {item.description?.trim() || 'No description provided.'}
+                </Text>
+              </View>
 
               <View style={styles.actions}>
-
                 <Pressable
                   style={styles.editButton}
-                  onPress={() =>
-                    openEditModal(item)
-                  }
+                  onPress={() => openEditModal(item)}
                 >
                   <Ionicons
                     name="create-outline"
-                    size={20}
+                    size={18}
                     color={COLORS.primary}
                   />
+                  <Text style={styles.editText}>Edit</Text>
+                </Pressable>
 
-                  <Text style={styles.editText}>
-                    Edit
+                <Pressable
+                  style={[
+                    styles.closeButton,
+                    item.status === 'closed' && styles.disabledButton,
+                  ]}
+                  disabled={item.status === 'closed'}
+                  onPress={() => closeEvent(item)}
+                >
+                  <Ionicons
+                    name="lock-closed-outline"
+                    size={18}
+                    color={
+                      item.status === 'closed'
+                        ? COLORS.textSecondary
+                        : COLORS.danger
+                    }
+                  />
+                  <Text
+                    style={[
+                      styles.closeText,
+                      item.status === 'closed' && styles.disabledText,
+                    ]}
+                  >
+                    {item.status === 'closed' ? 'Closed' : 'Close Event'}
                   </Text>
                 </Pressable>
 
                 <Pressable
                   style={styles.deleteButton}
-                  onPress={() =>
-                    confirmDelete(item)
-                  }
+                  onPress={() => confirmDelete(item)}
                 >
                   <Ionicons
                     name="trash-outline"
-                    size={20}
+                    size={18}
                     color={COLORS.danger}
                   />
-
-                  <Text style={styles.deleteText}>
-                    Delete
-                  </Text>
+                  <Text style={styles.deleteText}>Delete</Text>
                 </Pressable>
-
               </View>
+
+              {item.status === 'closed' && (
+                <Pressable
+                  style={styles.reopenButton}
+                  onPress={() => void updateEventStatus(item, 'open')}
+                >
+                  <Ionicons
+                    name="lock-open-outline"
+                    size={17}
+                    color={COLORS.primary}
+                  />
+                  <Text style={styles.reopenText}>Reopen Event</Text>
+                </Pressable>
+              )}
             </View>
           )}
         />
       )}
 
-      {/* ADD / EDIT MODAL */}
-
       <Modal
         visible={modalVisible}
         transparent
         animationType="fade"
-        onRequestClose={closeModal}
+        onRequestClose={() => {
+          if (!saving) setModalVisible(false);
+        }}
       >
-        <View style={styles.overlay}>
-          <View style={styles.modal}>
-
-            <Text style={styles.modalTitle}>
-              {editingEvent
-                ? 'Edit Event'
-                : 'Add Event'}
-            </Text>
-
-            <Text style={styles.modalSubtitle}>
-              {editingEvent
-                ? 'Update the event information.'
-                : 'Create a new school event.'}
-            </Text>
-
-            {/* TITLE */}
-
-            <Text style={styles.label}>
-              Event Title
-            </Text>
-
-            <TextInput
-              value={title}
-              onChangeText={setTitle}
-              placeholder="Example: Teachers Day"
-              placeholderTextColor={
-                COLORS.textSecondary
-              }
-              style={styles.input}
-              editable={!saving}
-            />
-
-            {/* START */}
-
-            <Text style={styles.label}>
-              Start Time
-            </Text>
-
-            <TextInput
-              value={startTime}
-              onChangeText={setStartTime}
-              placeholder="YYYY-MM-DD HH:mm"
-              placeholderTextColor={
-                COLORS.textSecondary
-              }
-              style={styles.input}
-              editable={!saving}
-            />
-
-            {/* END */}
-
-            <Text style={styles.label}>
-              End Time
-            </Text>
-
-            <TextInput
-              value={endTime}
-              onChangeText={setEndTime}
-              placeholder="YYYY-MM-DD HH:mm"
-              placeholderTextColor={
-                COLORS.textSecondary
-              }
-              style={styles.input}
-              editable={!saving}
-            />
-
-            {!editingEvent && (
-              <Text style={styles.helper}>
-                Event code will be generated automatically.
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator
+            >
+              <Text style={styles.modalTitle}>
+                {editingEvent ? 'Edit Event' : 'Add Event'}
               </Text>
-            )}
+              <Text style={styles.modalSubtitle}>
+                Enter the event information below.
+              </Text>
 
-            {/* BUTTONS */}
+              <Text style={styles.fieldLabel}>Event Title *</Text>
+              <TextInput
+                style={styles.input}
+                value={title}
+                onChangeText={setTitle}
+                placeholder="Enter event title"
+                placeholderTextColor="#888888"
+              />
 
-            <View style={styles.modalButtons}>
+              <Text style={styles.fieldLabel}>Start Time *</Text>
+              <TextInput
+                style={styles.input}
+                value={startTime}
+                onChangeText={setStartTime}
+                placeholder="2026-10-20T08:00"
+                placeholderTextColor="#888888"
+                autoCapitalize="none"
+              />
 
-              <Pressable
-                style={styles.cancelButton}
-                onPress={closeModal}
-                disabled={saving}
-              >
-                <Text style={styles.cancelText}>
-                  Cancel
-                </Text>
-              </Pressable>
+              <Text style={styles.fieldLabel}>End Time *</Text>
+              <TextInput
+                style={styles.input}
+                value={endTime}
+                onChangeText={setEndTime}
+                placeholder="2026-10-20T12:00"
+                placeholderTextColor="#888888"
+                autoCapitalize="none"
+              />
 
-              <Pressable
-                style={styles.saveButton}
-                onPress={saveEvent}
-                disabled={saving}
-              >
-                {saving ? (
-                  <ActivityIndicator
-                    color="#FFFFFF"
+              <Text style={styles.helper}>
+                Use YYYY-MM-DDTHH:mm format in your local time.
+              </Text>
+
+              <Text style={styles.fieldLabel}>Venue</Text>
+              <TextInput
+                style={styles.input}
+                value={venue}
+                onChangeText={setVenue}
+                placeholder="Enter event venue"
+                placeholderTextColor="#888888"
+              />
+
+              <Text style={styles.fieldLabel}>Description</Text>
+              <TextInput
+                style={[styles.input, styles.descriptionInput]}
+                value={description}
+                onChangeText={setDescription}
+                placeholder="Describe the event..."
+                placeholderTextColor="#888888"
+                multiline
+                textAlignVertical="top"
+              />
+
+              <Text style={styles.fieldLabel}>Event Status</Text>
+              <View style={styles.statusChoices}>
+                <Pressable
+                  onPress={() => setStatus('open')}
+                  style={[
+                    styles.statusChoice,
+                    status === 'open' && styles.selectedOpen,
+                  ]}
+                >
+                  <Ionicons
+                    name="lock-open-outline"
+                    size={18}
+                    color={status === 'open' ? '#FFFFFF' : COLORS.primary}
                   />
-                ) : (
-                  <Text style={styles.saveText}>
-                    {editingEvent
-                      ? 'Save Changes'
-                      : 'Create Event'}
+                  <Text
+                    style={[
+                      styles.choiceText,
+                      status === 'open' && styles.selectedChoiceText,
+                    ]}
+                  >
+                    Open
                   </Text>
-                )}
-              </Pressable>
+                </Pressable>
 
-            </View>
+                <Pressable
+                  onPress={() => setStatus('closed')}
+                  style={[
+                    styles.statusChoice,
+                    status === 'closed' && styles.selectedClosed,
+                  ]}
+                >
+                  <Ionicons
+                    name="lock-closed-outline"
+                    size={18}
+                    color={status === 'closed' ? '#FFFFFF' : COLORS.danger}
+                  />
+                  <Text
+                    style={[
+                      styles.choiceText,
+                      status === 'closed' && styles.selectedChoiceText,
+                    ]}
+                  >
+                    Closed
+                  </Text>
+                </Pressable>
+              </View>
+
+              {!editingEvent && (
+                <Text style={styles.helper}>
+                  An event code will be generated automatically.
+                </Text>
+              )}
+
+              <View style={styles.modalActions}>
+                <Pressable
+                  style={styles.cancelButton}
+                  onPress={() => setModalVisible(false)}
+                  disabled={saving}
+                >
+                  <Text style={styles.cancelText}>Cancel</Text>
+                </Pressable>
+
+                <Pressable
+                  style={[
+                    styles.saveButton,
+                    saving && styles.disabledButton,
+                  ]}
+                  onPress={() => void saveEvent()}
+                  disabled={saving}
+                >
+                  {saving ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.saveText}>
+                      {editingEvent ? 'Save Changes' : 'Create Event'}
+                    </Text>
+                  )}
+                </Pressable>
+              </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>
-
     </View>
   );
 }
@@ -670,287 +706,375 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.background,
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingTop: 20,
   },
-
   center: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: COLORS.background,
+    padding: 20,
   },
-
-  centerContent: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  header: {
+  pageHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
     marginBottom: 20,
   },
-
   headerText: {
     flex: 1,
   },
-
-  title: {
-    fontSize: 28,
+  heading: {
+    fontSize: 25,
     fontWeight: '700',
     color: COLORS.textPrimary,
   },
-
-  subtitle: {
-    marginTop: 5,
-    fontSize: 14,
+  muted: {
+    marginTop: 6,
+    fontSize: 13,
+    lineHeight: 19,
     color: COLORS.textSecondary,
   },
-
   addButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 10,
+    justifyContent: 'center',
     gap: 5,
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+    borderRadius: 10,
   },
-
   addButtonText: {
     color: '#FFFFFF',
+    fontSize: 13,
     fontWeight: '700',
   },
-
-  list: {
-    paddingBottom: 100,
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.card,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    marginBottom: 14,
   },
-
+  searchInput: {
+    flex: 1,
+    paddingVertical: 12,
+    color: COLORS.textPrimary,
+  },
+  list: {
+    paddingBottom: 28,
+    gap: 14,
+  },
   eventCard: {
     backgroundColor: COLORS.card,
     borderWidth: 1,
     borderColor: COLORS.border,
-    borderRadius: 14,
+    borderRadius: 16,
     padding: 18,
-    marginBottom: 14,
+    gap: 16,
   },
-
-  eventHeader: {
+  eventHeading: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 18,
+    gap: 12,
   },
-
   eventIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 48,
+    height: 48,
+    borderRadius: 12,
     backgroundColor: COLORS.background,
     alignItems: 'center',
     justifyContent: 'center',
   },
-
   eventInfo: {
     flex: 1,
-    marginLeft: 14,
+    gap: 5,
   },
-
   eventTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
     color: COLORS.textPrimary,
   },
-
   eventCode: {
-    marginTop: 5,
-    fontSize: 13,
-    color: COLORS.primary,
+    fontSize: 12,
     fontWeight: '600',
+    color: COLORS.primary,
   },
-
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  openBadge: {
+    backgroundColor: '#E8F7EE',
+  },
+  closedBadge: {
+    backgroundColor: '#FCEAEA',
+  },
+  statusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+  },
+  openDot: {
+    backgroundColor: '#218653',
+  },
+  closedDot: {
+    backgroundColor: '#C53A3A',
+  },
+  statusText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  openText: {
+    color: '#218653',
+  },
+  closedText: {
+    color: '#C53A3A',
+  },
   detailRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 10,
-    marginBottom: 13,
   },
-
+  detailInfo: {
+    flex: 1,
+    gap: 3,
+  },
   detailLabel: {
-    fontSize: 11,
+    fontSize: 12,
     color: COLORS.textSecondary,
   },
-
   detailValue: {
     fontSize: 13,
+    lineHeight: 19,
     color: COLORS.textPrimary,
-    marginTop: 2,
   },
-
+  descriptionBox: {
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: COLORS.background,
+    gap: 5,
+  },
+  descriptionText: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: COLORS.textPrimary,
+  },
   actions: {
     flexDirection: 'row',
-    gap: 10,
+    flexWrap: 'wrap',
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
-    paddingTop: 14,
-    marginTop: 5,
+    paddingTop: 12,
+    gap: 8,
   },
-
   editButton: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: '25%',
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 11,
-    borderRadius: 9,
+    alignItems: 'center',
+    gap: 5,
     backgroundColor: COLORS.background,
+    padding: 11,
+    borderRadius: 9,
   },
-
   editText: {
-    marginLeft: 6,
-    color: COLORS.primary,
+    fontSize: 12,
     fontWeight: '700',
+    color: COLORS.primary,
   },
-
+  closeButton: {
+    flexGrow: 1,
+    flexBasis: '35%',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: COLORS.background,
+    padding: 11,
+    borderRadius: 9,
+  },
+  closeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.danger,
+  },
   deleteButton: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: '25%',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: COLORS.background,
+    padding: 11,
+    borderRadius: 9,
+  },
+  deleteText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.danger,
+  },
+  disabledButton: {
+    opacity: 0.6,
+  },
+  disabledText: {
+    color: COLORS.textSecondary,
+  },
+  reopenButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 11,
-    borderRadius: 9,
-    backgroundColor: COLORS.background,
-  },
-
-  deleteText: {
-    marginLeft: 6,
-    color: COLORS.danger,
-    fontWeight: '700',
-  },
-
-  emptyCard: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 30,
-    marginTop: 30,
-    backgroundColor: COLORS.card,
+    gap: 7,
     borderWidth: 1,
     borderColor: COLORS.border,
-    borderRadius: 14,
+    borderRadius: 9,
+    padding: 11,
   },
-
-  emptyTitle: {
-    marginTop: 10,
-    fontSize: 18,
+  reopenText: {
+    color: COLORS.primary,
     fontWeight: '700',
-    color: COLORS.textPrimary,
+    fontSize: 13,
   },
-
-  emptyText: {
-    marginTop: 5,
-    fontSize: 14,
+  empty: {
+    textAlign: 'center',
+    padding: 24,
     color: COLORS.textSecondary,
   },
-
-  loadingText: {
-    marginTop: 10,
-    color: COLORS.textSecondary,
+  errorBox: {
+    padding: 16,
+    gap: 12,
+    backgroundColor: COLORS.card,
+    borderRadius: 12,
   },
-
-  deniedTitle: {
-    marginTop: 12,
-    fontSize: 20,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
+  errorText: {
+    color: COLORS.danger,
+    lineHeight: 20,
   },
-
-  deniedText: {
-    marginTop: 5,
-    color: COLORS.textSecondary,
-  },
-
-  overlay: {
+  modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.48)',
     justifyContent: 'center',
-    padding: 20,
+    alignItems: 'center',
+    padding: 16,
   },
-
-  modal: {
+  modalCard: {
     width: '100%',
     maxWidth: 520,
+    maxHeight: '90%',
     backgroundColor: COLORS.card,
     borderRadius: 18,
-    padding: 24,
+    padding: 22,
   },
-
   modalTitle: {
     fontSize: 23,
     fontWeight: '700',
     color: COLORS.textPrimary,
   },
-
   modalSubtitle: {
-    marginTop: 5,
-    marginBottom: 22,
+    marginTop: 6,
+    marginBottom: 8,
     fontSize: 13,
     color: COLORS.textSecondary,
   },
-
-  label: {
-    fontSize: 14,
+  fieldLabel: {
+    marginTop: 14,
+    marginBottom: 8,
+    fontSize: 13,
     fontWeight: '600',
     color: COLORS.textPrimary,
-    marginBottom: 7,
   },
-
   input: {
-    height: 50,
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: 10,
-    paddingHorizontal: 14,
-    color: COLORS.textPrimary,
+    paddingHorizontal: 13,
+    paddingVertical: 12,
     backgroundColor: COLORS.background,
-    marginBottom: 17,
+    color: COLORS.textPrimary,
   },
-
+  descriptionInput: {
+    minHeight: 90,
+    paddingTop: 12,
+  },
   helper: {
-    fontSize: 12,
+    marginTop: 8,
+    fontSize: 11,
+    lineHeight: 17,
     color: COLORS.textSecondary,
-    marginBottom: 15,
   },
-
-  modalButtons: {
+  statusChoices: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 5,
   },
-
-  cancelButton: {
+  statusChoice: {
     flex: 1,
-    paddingVertical: 13,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    alignItems: 'center',
-  },
-
-  cancelText: {
-    color: COLORS.textSecondary,
-    fontWeight: '700',
-  },
-
-  saveButton: {
-    flex: 1,
-    paddingVertical: 13,
-    borderRadius: 10,
-    backgroundColor: COLORS.primary,
+    minHeight: 44,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 7,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    backgroundColor: COLORS.card,
   },
-
+  selectedOpen: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  selectedClosed: {
+    backgroundColor: COLORS.danger,
+    borderColor: COLORS.danger,
+  },
+  choiceText: {
+    color: COLORS.textPrimary,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  selectedChoiceText: {
+    color: '#FFFFFF',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 24,
+    marginBottom: 4,
+  },
+  cancelButton: {
+    flex: 1,
+    minHeight: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+  },
+  cancelText: {
+    color: COLORS.textPrimary,
+    fontWeight: '600',
+  },
+  saveButton: {
+    flex: 1,
+    minHeight: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.primary,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+  },
   saveText: {
     color: '#FFFFFF',
     fontWeight: '700',

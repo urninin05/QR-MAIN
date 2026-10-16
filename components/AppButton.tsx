@@ -1,3 +1,4 @@
+
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Pressable, StyleSheet, Text } from 'react-native';
 
@@ -15,11 +16,12 @@ export default function AppButton({ title, icon, theme, onPress }: Props) {
 
   return (
     <Pressable
-      style={[
+      style={({ pressed }) => [
         styles.button,
         {
           backgroundColor: isPrimary ? COLORS.primary : COLORS.card,
           borderColor: isPrimary ? COLORS.primary : COLORS.border,
+          opacity: pressed ? 0.8 : 1,
         },
       ]}
       onPress={onPress}
@@ -27,7 +29,7 @@ export default function AppButton({ title, icon, theme, onPress }: Props) {
       <Ionicons
         name={icon}
         size={22}
-        color={isPrimary ? COLORS.textOnPrimary : COLORS.textPrimary}
+        color={isPrimary ? COLORS.textOnPrimary : COLORS.primary}
         style={styles.icon}
       />
 
@@ -35,7 +37,7 @@ export default function AppButton({ title, icon, theme, onPress }: Props) {
         style={[
           styles.label,
           {
-            color: isPrimary ? COLORS.textOnPrimary : COLORS.textPrimary,
+            color: isPrimary ? COLORS.textOnPrimary : COLORS.primary,
           },
         ]}
       >
@@ -50,12 +52,17 @@ const styles = StyleSheet.create({
     width: '100%',
     marginBottom: 14,
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: 14,
     paddingVertical: 14,
     paddingHorizontal: 20,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 5,
+    elevation: 2,
   },
 
   icon: {
@@ -63,7 +70,7 @@ const styles = StyleSheet.create({
   },
 
   label: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '600',
   },
 });

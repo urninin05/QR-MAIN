@@ -4,7 +4,7 @@ import type { Session, User } from '@supabase/supabase-js';
 
 export type SignUpProfile = {
   full_name: string;
-  role: 'student' | 'teacher' | 'admin';
+  role: 'student' | 'teacher';
 };
 
 export async function signUp(

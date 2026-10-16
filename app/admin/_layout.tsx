@@ -1,29 +1,23 @@
-import { Tabs } from 'expo-router';
-import Ionicons from '@expo/vector-icons/Ionicons';
 
-import { COLORS } from '@/constants/colors';
+import { Tabs } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function AdminLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: COLORS.primary,
-        tabBarInactiveTintColor: COLORS.textSecondary,
-
-        headerStyle: {
-          backgroundColor: COLORS.background,
-        },
-
-        headerShadowVisible: false,
-        headerTintColor: COLORS.textPrimary,
-
+        headerShown: false,
+        tabBarActiveTintColor: '#7047B8',
+        tabBarInactiveTintColor: '#888888',
         tabBarStyle: {
-          backgroundColor: COLORS.card,
-          borderTopColor: COLORS.border,
-          borderTopWidth: 1,
-          height: 65,
-          paddingBottom: 5,
-          paddingTop: 5,
+          backgroundColor: '#FFFFFF',
+          borderTopColor: '#E5E1ED',
+          height: 64,
+          paddingTop: 8,
+          paddingBottom: 8,
+        },
+        tabBarLabelStyle: {
+          fontSize: 11,
         },
       }}
     >
@@ -31,12 +25,8 @@ export default function AdminLayout() {
         name="index"
         options={{
           title: 'Dashboard',
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? 'grid' : 'grid-outline'}
-              size={24}
-              color={color}
-            />
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="grid-outline" size={size} color={color} />
           ),
         }}
       />
@@ -45,12 +35,8 @@ export default function AdminLayout() {
         name="user-management"
         options={{
           title: 'Users',
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? 'people' : 'people-outline'}
-              size={24}
-              color={color}
-            />
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="people-outline" size={size} color={color} />
           ),
         }}
       />
@@ -59,12 +45,8 @@ export default function AdminLayout() {
         name="event-management"
         options={{
           title: 'Events',
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? 'calendar' : 'calendar-outline'}
-              size={24}
-              color={color}
-            />
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="calendar-outline" size={size} color={color} />
           ),
         }}
       />
@@ -73,12 +55,8 @@ export default function AdminLayout() {
         name="attendance-management"
         options={{
           title: 'Attendance',
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? 'clipboard' : 'clipboard-outline'}
-              size={24}
-              color={color}
-            />
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="clipboard-outline" size={size} color={color} />
           ),
         }}
       />
@@ -87,12 +65,18 @@ export default function AdminLayout() {
         name="reports"
         options={{
           title: 'Reports',
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? 'bar-chart' : 'bar-chart-outline'}
-              size={24}
-              color={color}
-            />
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="bar-chart-outline" size={size} color={color} />
+          ),
+        }}
+      />
+
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'Profile',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="person-circle-outline" size={size} color={color} />
           ),
         }}
       />

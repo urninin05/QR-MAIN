@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from 'react';
 
 import { useAuth } from './auth';
@@ -5,6 +6,7 @@ import { getProfile, type Role } from './profiles';
 
 export function useRole() {
   const { user } = useAuth();
+  const userId = user?.id ?? null;
 
   const [role, setRole] = useState<Role | null>(null);
   const [loading, setLoading] = useState(true);
@@ -13,21 +15,30 @@ export function useRole() {
     let mounted = true;
 
     async function loadRole() {
-      if (!user) {
-        if (mounted) {
-          setRole(null);
-          setLoading(false);
-        }
+      if (!userId) {
+        setRole(null);
+        setLoading(false);
         return;
       }
 
       setLoading(true);
 
-      const profile = await getProfile(user.id);
+      try {
+        const profile = await getProfile(userId);
 
-      if (mounted) {
-        setRole(profile?.role ?? 'student');
-        setLoading(false);
+        if (mounted) {
+          setRole(profile?.role ?? null);
+        }
+      } catch (error) {
+        console.error('Failed to load user role:', error);
+
+        if (mounted) {
+          setRole(null);
+        }
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
       }
     }
 
@@ -36,7 +47,7 @@ export function useRole() {
     return () => {
       mounted = false;
     };
-  }, [user]);
+  }, [userId]);
 
   return {
     user,

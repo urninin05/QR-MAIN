@@ -1,9 +1,11 @@
+
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 
 import { COLORS } from '@/constants/colors';
-import { useRole } from '@/lib/useRole';
+import { useAuth } from '@/lib/auth';
+import { getProfile, type Role } from '@/lib/profiles';
 import {
   getAttendanceHistory,
   getTeacherEventAttendance,
@@ -12,8 +14,9 @@ import {
 } from '@/lib/attendance';
 
 export default function HistoryScreen() {
-  const { user, role, loading: roleLoading } = useRole();
+  const { user } = useAuth();
 
+  const [role, setRole] = useState<Role | null>(null);
   const [studentRecords, setStudentRecords] = useState<AttendanceRecord[]>([]);
   const [teacherEvents, setTeacherEvents] = useState<TeacherEventAttendance[]>(
     []
@@ -21,27 +24,36 @@ export default function HistoryScreen() {
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    if (!user || roleLoading || !role) {
+    if (!user) {
+      setStudentRecords([]);
+      setTeacherEvents([]);
       setLoading(false);
       return;
     }
 
     setLoading(true);
 
-    if (role === 'teacher') {
-      const events = await getTeacherEventAttendance(user.id);
+    try {
+      const profile = await getProfile(user.id);
+      const currentRole = profile?.role ?? 'student';
 
-      setTeacherEvents(events);
-      setStudentRecords([]);
-    } else {
-      const records = await getAttendanceHistory(user.id);
+      setRole(currentRole);
 
-      setStudentRecords(records);
-      setTeacherEvents([]);
+      if (currentRole === 'teacher') {
+        const events = await getTeacherEventAttendance(user.id);
+        setTeacherEvents(events);
+        setStudentRecords([]);
+      } else {
+        const records = await getAttendanceHistory(user.id);
+        setStudentRecords(records);
+        setTeacherEvents([]);
+      }
+    } catch (error) {
+      console.error('Failed to load attendance history:', error);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
-  }, [user, role, roleLoading]);
+  }, [user?.id]);
 
   useFocusEffect(
     useCallback(() => {
@@ -53,7 +65,7 @@ export default function HistoryScreen() {
     <View style={styles.container}>
       <Text style={styles.title}>Attendance History</Text>
 
-      {loading || roleLoading ? (
+      {loading ? (
         <Text style={styles.subtitle}>Loading records...</Text>
       ) : role === 'teacher' ? (
         <TeacherHistory events={teacherEvents} />
@@ -90,7 +102,9 @@ function StudentHistory({
         <View style={styles.card}>
           <Text style={styles.eventTitle}>{item.eventTitle}</Text>
 
-          <Text style={styles.eventMeta}>{item.eventId}</Text>
+          <Text style={styles.eventMeta}>
+            Event Code: {item.eventCode}
+          </Text>
 
           <Text style={styles.eventMeta}>
             {formatDate(item.scannedAt)}
@@ -129,9 +143,7 @@ function TeacherHistory({
             <Text style={styles.eventTitle}>{item.title}</Text>
 
             <View style={styles.countBadge}>
-              <Text style={styles.countText}>
-                {item.attendeeCount}
-              </Text>
+              <Text style={styles.countText}>{item.attendeeCount}</Text>
             </View>
           </View>
 
