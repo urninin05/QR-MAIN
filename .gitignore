@@ -1,0 +1,39 @@
+
+# dependencies
+node_modules/
+
+# expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# native
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# macOS
+.DS_Store
+
+# local env files
+.env
+.env*.local
+
+# teaching materials
+docs/
+# environment secrets
+.env.*
+!.env.example
+
+# local Expo files
+.expo/
+
+# dependencies
+node_modules/
+
+# Supabase local temporary files
+supabase/.temp/
